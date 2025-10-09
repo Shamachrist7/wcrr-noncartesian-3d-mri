@@ -29,7 +29,7 @@ kspace_loc = traj.reshape(-1, dim)
 volume = 'e14120s11_P66048.7.h5.npy'
 root = "../../../../../../../LOCAL/mri_data/Val/_images" # Here, replace with the root directory of that volume
 
-# Load the WCRR regularizer weights
+# Load the CRR regularizer weights
 reg = WCRR3D(weak_convexity=0.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=True).to(device)
 pretrained = "weights/bilevel_Denoising/CRR_3by3_32_bilevel_IFT_ckpt_100.pt"
 regularizer = ParameterLearningWrapper(reg, device=device)
