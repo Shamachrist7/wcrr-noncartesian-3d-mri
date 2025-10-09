@@ -42,7 +42,7 @@ regularizer.eval()
 
 # Parameters of the nmAPG solver
 step_size = 1e-1
-max_iter = 30 # set to 30 only speed up tuning, set to 100 for real evaluation
+max_iter = 30 # set to 30 only to speed up tuning, set to 100 for real evaluation
 tol = 1e-4  # tolerance for the relative error (stopping criterion)
 
 # Objective function for Optuna
