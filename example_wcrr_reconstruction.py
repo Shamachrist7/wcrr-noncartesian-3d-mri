@@ -74,6 +74,7 @@ lmbd = 0.01462374201496773 # Regularization strength
 sigma = 0.018207128665459673 # Denoising power
 sigma = torch.tensor([sigma], device=device)
 
+# Reconstruction
 with torch.no_grad():
     x_rec_ri = reconstruct_nmAPG(
                 sigma,
