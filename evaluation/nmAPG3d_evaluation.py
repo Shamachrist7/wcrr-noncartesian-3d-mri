@@ -3,6 +3,7 @@ import numpy as np
 from typing import Callable, Tuple
 import inspect
 from torch.amp import autocast
+from tqdm import tqdm
 
 # Implements Algorithm 4 (non-monotone APG) from:
 # Huan Li, Zhouchen Lin
@@ -22,7 +23,7 @@ def nmAPG(
     delta: float = 0.1,
     eta: float = 0.8,
     verbose: bool = False,
-    use_amp: bool = False,                # use mixed precision to save memory
+    use_amp: bool = True,                # use mixed precision to save memory
 ) -> Tuple[torch.Tensor, torch.Tensor, int]:
     """
     Non-monotone APG solver for 3D volumes x of shape [B,C,D,H,W].
@@ -50,6 +51,7 @@ def nmAPG(
     L_old = L.clone()
 
     res = (tol + 1) * torch.ones(x.shape[0], device=x.device, dtype=x.dtype)
+    res_history = []
     idx = torch.arange(0, x.shape[0], device=x.device)
 
     grad = torch.zeros_like(x)
@@ -58,7 +60,7 @@ def nmAPG(
     grad_old = grad.clone()
 
     # Main loop
-    for i in range(max_iter):
+    for i in tqdm(range(max_iter)):
         assert not torch.any(
             torch.isnan(x)
         ), "Numerical errors! Some values became NaN!"
@@ -72,7 +74,7 @@ def nmAPG(
 
         # Compute energy and gradient
         with torch.no_grad(), autocast('cuda', enabled=use_amp):
-            energy, grad_vals = f_and_nabla(x_bar[idx], y[idx], sigma[idx])
+            energy, grad_vals = f_and_nabla(x_bar[idx], y, sigma[idx])
         grad[idx] = grad_vals
 
         # # Lipschitz Update (Barzilai-Borwein style step)
@@ -98,7 +100,7 @@ def nmAPG(
                 c[idx, None, None, None, None]
             ) - delta * (dxx * dxx).sum((1,2,3,4), keepdim=True)
             with autocast('cuda', enabled=use_amp):
-                energy_new = f(z[idx], y[idx], sigma[idx])
+                energy_new = f(z[idx], y, sigma[idx])
             if torch.all(energy_new <= bound.view(-1)):
                 break
             mask = energy_new[:, None, None, None, None] <= bound
@@ -109,7 +111,7 @@ def nmAPG(
         if idx2.nelement() > 0:
             sel = idx[idx2]
             with torch.no_grad(), autocast('cuda', enabled=use_amp):
-                gradx = nabla(x[sel], y[sel], sigma[sel])
+                gradx = nabla(x[sel], y, sigma[sel])
             if i > 0:
                 dxg2 = gradx - grad_old[sel]
                 rr2 = (dxg2 * dxg2).sum((1,2,3,4), keepdim=True)
@@ -128,7 +130,7 @@ def nmAPG(
                 dv = v - x[sel]
                 bound2 = c[sel, None, None, None, None] - delta * (dv * dv).sum((1,2,3,4), keepdim=True)
                 with autocast('cuda', enabled=use_amp):
-                    energy_new2 = f(v, y[sel], sigma[sel])
+                    energy_new2 = f(v, y, sigma[sel])
                 if torch.all(energy_new2 <= bound2.view(-1) * (1 + 1e-4)):
                     break
                 mask2 = energy_new2[:, None, None, None, None] <= bound2
@@ -144,7 +146,8 @@ def nmAPG(
             res[idx] = torch.norm(x[idx] - x_old[idx], p=2, dim=(1, 2, 3, 4)) / torch.norm(
                 x[idx], p=2, dim=(1, 2, 3, 4)
             )
-
+            res_history.append(res[idx].item())
+            
         assert not torch.any(
             torch.isnan(res)
         ), "Numerical errors! Some values became NaN!"
@@ -161,7 +164,7 @@ def nmAPG(
         t = (np.sqrt(4.0*t_old**2 + 1.0) + 1.0) / 2.0
         q_old = q
         q = eta * q + 1.0
-        c[idx] = (eta * q_old * c[idx] + f(x[idx], y[idx], sigma[idx])) / q
+        c[idx] = (eta * q_old * c[idx] + f(x[idx], y, sigma[idx])) / q
         x_bar_old.copy_(x_bar)
         grad_old.copy_(grad)
 
@@ -170,11 +173,11 @@ def nmAPG(
     # Cast back to float
     if use_amp:
         x = x.float()
-    return x, L, i
+    return x, L, i, res_history
 
 
 def reconstruct_nmAPG(
-    sigma: torch.Tensor, # noise level (Denoising strength)
+    sigma: torch.Tensor, # noise level (Denoiser strength)
     y: torch.Tensor,
     physics,
     data_fidelity,
@@ -184,7 +187,6 @@ def reconstruct_nmAPG(
     max_iter: int,
     tol: float,
     x_init: torch.Tensor = None,
-    multi_coil_mri = False, # set to False while training on a denoising task, and to True while performing the reconstruction
     detach_grads: bool = True,
     verbose: bool = False,
     return_stats: bool = False,
@@ -204,10 +206,7 @@ def reconstruct_nmAPG(
 
     def energy(val, y_in, sigma):
         with torch.no_grad():
-            if multi_coil_mri:
-                en = data_fidelity(val, y_in, physics).sum() + lamda * regularizer.g(val, sigma) # We sum over the coils, batch non-friendly
-            else:
-                en = data_fidelity(val, y_in, physics) + lamda * regularizer.g(val, sigma) # For training, batch-friendly
+            en = data_fidelity(val, y_in, physics).sum() + lamda * regularizer.g(val, sigma) # We sum over the coils
         return en.reshape(-1)
 
     def gradf(val, y_in, sigma):
@@ -218,7 +217,7 @@ def reconstruct_nmAPG(
     energy_and_grad = lambda v, yv, sigma: (energy(v, yv, sigma), gradf(v, yv, sigma))
 
     # example energies
-    rec, L, steps = nmAPG(
+    rec, L, steps, residuals = nmAPG(
         sigma,
         x0=x0,
         y=y,
@@ -232,7 +231,8 @@ def reconstruct_nmAPG(
         use_amp=use_amp,
     )
     
-    stats = dict(L=L.detach(), steps=steps)
+    stats = dict(L=L.detach(), steps=steps, residuals=residuals)
     if return_stats:
         return rec, stats
     return rec
+

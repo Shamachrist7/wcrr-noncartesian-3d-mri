@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
 from mrinufft import get_operator
 from mrinufft.io import read_trajectory
 from baselines.grappa_reconstruction import do_grappa_and_append_data
@@ -7,7 +8,6 @@ from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim
 from reg_architectures import ParameterLearningWrapper, WCRR3D
 from evaluation.nmAPG3d_evaluation import reconstruct_nmAPG
 from deepinv.optim import L2
-import optuna
 import os
 import warnings
 warnings.filterwarnings("ignore")
@@ -25,8 +25,8 @@ traj[traj > 0.5] = 0.5
 dim = traj_params["dimension"]
 kspace_loc = traj.reshape(-1, dim)
 
-# The chosen volume to tune hyperparameters on
-volume = 'e14691s3_P06656.7.h5.npy'
+# Choose your multi-coil volume
+volume = 'e14120s11_P66048.7.h5.npy'
 root = "../../../../../../../LOCAL/mri_data/Val/_images" # Here, replace with the root directory of that volume
 
 # Load the WCRR regularizer weights
@@ -38,7 +38,7 @@ regularizer.eval()
 
 # Parameters of the nmAPG solver
 step_size = 1e-1
-max_iter = 50 # set to 50 only to speed up tuning, set to 100 for real evaluation
+max_iter = 100
 tol = 1e-4  # tolerance for the relative error (stopping criterion)
 
 # Calgary volumes are under the format [D,H,W,coils], and we convert to [coils,H,W,D] so that NUFFT works
@@ -69,39 +69,40 @@ x_adj_ri = physics.A_adjoint(y)
 x_gt = np.sum(np.conj(E_est.smaps) * x, axis=0)
 x_gt_ri = complex_to_ri(torch.from_numpy(x_gt)).to(device) # In the RI space
         
-# Objective function for Optuna
-def objective(trial):
+# Tuned hyperparameters
+lmbd = 0.01462374201496773 # Regularization strength
+sigma = 0.018207128665459673 # Denoising power
+sigma = torch.tensor([sigma], device=device)
 
-    # Define hyperparameters to tune
-    lmbd = trial.suggest_float('lmbd', 5e-3, 1e-1, log=True) # can be tuned but in [0.0, 1.0], to keep a rho<=1 weakly convex regularizer and conserve an overall convex objective
-    sigma = trial.suggest_float('sigma', 0.01, 0.1) # can be tuned in [0.01, 0.1] (range for which the regularizer has been trained)
-    sigma = torch.tensor([sigma], device=device)
-    #regularizer_scale = trial.suggest_categorical('regularizer_scale', [1.5, 2, 2.5, 3, 3.5])
-    #regularizer_scale = torch.tensor(regularizer_scale, device=device)
-    #regularizer.scale = torch.nn.Parameter(regularizer_scale)
+with torch.no_grad():
+    x_rec_ri = reconstruct_nmAPG(
+                sigma,
+                y,
+                physics,
+                data_fidelity,
+                regularizer,
+                lmbd,
+                step_size,
+                max_iter,
+                tol,
+                verbose=True,
+                x_init=x_adj_ri, # Initialize with the adjoint of GRAPPA recon (and not the adjoint of the zero-filled)
+                return_stats=False,
+                    )
+                    
 
-    with torch.no_grad():
-        x_rec_ri = reconstruct_nmAPG(
-       	            sigma,
-	            y,
-	            physics,
-	            data_fidelity,
-	            regularizer,
-	            lmbd,
-	            step_size,
-	            max_iter,
-	            tol,
-	            verbose=True,
-	            x_init=x_adj_ri, # Initialize with the adjoint of GRAPPA recon (and not the adjoint of the zero-filled)
-	            return_stats=False,
-	                )
-    return psnr(x_rec_ri, x_gt_ri)
+# Compute the magnitude for plotting
+reference = torch.abs(ri_to_complex(x_gt_ri)).detach().cpu()
+grappa_recon  = torch.abs(ri_to_complex(x_adj_ri)).detach().cpu()
+wcrr_recon  = torch.abs(ri_to_complex(x_rec_ri)).detach().cpu()
 
-# Optuna study to tune hyperparameters
-study = optuna.create_study(direction='maximize')
-study.optimize(objective, n_trials=100)
-# Print the best hyperparameters
-print(f'Best trial: {study.best_trial.value}')
-print('Best hyperparameters: ')
-for key, value in study.best_trial.params.items():
-    print(f'{key}: {value}')
+# -----------------------------------
+# Plots (mid-slice)
+# -----------------------------------
+mid =  x.shape[-1] // 2
+
+plt.figure(figsize=(12,4))
+plt.subplot(1,3,1); plt.imshow(reference[..., mid], cmap='gray'); plt.title('Reference'); plt.axis('off')
+plt.subplot(1,3,2); plt.imshow(grappa_recon[..., mid],  cmap='gray'); plt.title(f'Grappa, psnr:{psnr(x_adj_ri, x_gt_ri)}'); plt.axis('off')
+plt.subplot(1,3,3); plt.imshow(wcrr_recon[..., mid],  cmap='gray'); plt.title(f'WCRR, psnr:{psnr(x_rec_ri, x_gt_ri)}'); plt.axis('off')
+plt.tight_layout(); plt.show()

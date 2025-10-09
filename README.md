@@ -17,10 +17,10 @@ To get started using `conda`, clone the repository and run (may take a few minut
 conda env create --file=environment.yaml
 ```
 
-The code relies mainly on [DeepInverse](https://deepinv.github.io), [MRI-NUFFT](https://mind-inria.github.io/mri-nufft/) and [GGRAPPA](https://github.com/mind-inria/ggrappa). For tuning hyperparameters, the Bayesian Optimizer [Optuna](https://optuna.org/) is used. All the necessary dependencies can be installed at once with the following command:
+The code relies mainly on [DeepInverse](https://deepinv.github.io), [MRI-NUFFT](https://mind-inria.github.io/mri-nufft/) and [GGRAPPA](https://github.com/mind-inria/ggrappa). All the necessary dependencies can be installed at once with the following command:
 
 ```
-pip install deepinv mri-nufft gpunufft cupy-cuda12x git+https://github.com/mind-inria/ggrappa optuna
+pip install deepinv mri-nufft gpunufft cupy-cuda12x git+https://github.com/mind-inria/ggrappa
 ```
 Note that a CUDA 12 machine is necessary. Previous versions might encounter some issues.
 

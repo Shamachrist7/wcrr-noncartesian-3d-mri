@@ -30,8 +30,8 @@ volume = 'e14691s3_P06656.7.h5.npy'
 root = "../../../../../../../LOCAL/mri_data/Val/_images" # Here, replace with the root directory of that volume
 
 # Load the WCRR regularizer weights
-reg = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=True).to(device)
-pretrained = "weights/bilevel_Denoising/WCRR_3by3_32_bilevel_IFT_ckpt_100.pt"
+reg = WCRR3D(weak_convexity=0.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=True).to(device)
+pretrained = "weights/bilevel_Denoising/CRR_3by3_32_bilevel_IFT_ckpt_100.pt"
 regularizer = ParameterLearningWrapper(reg, device=device)
 regularizer.load_state_dict(torch.load(pretrained, weights_only=True, map_location=device))
 regularizer.eval()

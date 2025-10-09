@@ -77,6 +77,7 @@ class MRINUFFTPhysicsRI(dinv.physics.Physics):
         """Jacobian–vector product for linear A is A v."""
         return self.A(v)
 
+    @torch.no_grad()
     def prox_l2(self, v, y, gamma: float, **kwargs):
         """
         Solve (I + gamma A^H A) x = v + gamma A^H y  with CG.
@@ -97,6 +98,7 @@ class MRINUFFTPhysicsRI(dinv.physics.Physics):
 # -----------------------------------
 # Spectral norm estimate (L) in RI space for stepsize
 # --------------------------------------
+@torch.no_grad()
 def power_iteration_L_RI(physics: MRINUFFTPhysicsRI, shape_ri, iters=20, device="cpu"):
     """
     Estimate L ≈ ||A||^2 for the linear map x_ri -> A(x_ri), with x_ri in RI space [1,2,H,W,D].
