@@ -184,7 +184,6 @@ def reconstruct_nmAPG(
     max_iter: int,
     tol: float,
     x_init: torch.Tensor = None,
-    multi_coil_mri = False, # set to False while training on a denoising task, and to True while performing the reconstruction
     detach_grads: bool = True,
     verbose: bool = False,
     return_stats: bool = False,
@@ -204,10 +203,7 @@ def reconstruct_nmAPG(
 
     def energy(val, y_in, sigma):
         with torch.no_grad():
-            if multi_coil_mri:
-                en = data_fidelity(val, y_in, physics).sum() + lamda * regularizer.g(val, sigma) # We sum over the coils, batch non-friendly
-            else:
-                en = data_fidelity(val, y_in, physics) + lamda * regularizer.g(val, sigma) # For training, batch-friendly
+            en = data_fidelity(val, y_in, physics) + lamda * regularizer.g(val, sigma) # For training, batch-friendly
         return en.reshape(-1)
 
     def gradf(val, y_in, sigma):
