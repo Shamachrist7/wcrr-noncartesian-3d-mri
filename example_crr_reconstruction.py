@@ -74,6 +74,7 @@ lmbd = 5e-3 # Regularization strength
 sigma = 0.1 # Denoising power
 sigma = torch.tensor([sigma], device=device)
 
+# Reconstruction
 with torch.no_grad():
     x_rec_ri = reconstruct_nmAPG(
                 sigma,
