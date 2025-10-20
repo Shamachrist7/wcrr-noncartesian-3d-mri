@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from mrinufft import get_operator
 from mrinufft.io import read_trajectory
 from baselines.grappa_reconstruction import do_grappa_and_append_data
-from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim
+from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, simulate_acs_data
 from reg_architectures import ParameterLearningWrapper, WCRR3D
 from evaluation.nmAPG3d_evaluation import reconstruct_nmAPG
 from deepinv.optim import L2
@@ -43,14 +43,15 @@ tol = 1e-4  # tolerance for the relative error (stopping criterion)
 
 # Calgary volumes are under the format [D,H,W,coils], and we convert to [coils,H,W,D] so that NUFFT works
 x = scaler * np.moveaxis(np.load(os.path.join(root, volume)),-1, 0) #[coils,H,W,D] and complex dtype
-coils = x.shape[0] # number of coils in the volume
+acs = simulate_acs_data(x)
 
+coils = x.shape[0] # number of coils in the volume
 # Forward NUFFT that takes coil images -> k-space
 F_raw = get_operator(backend)(kspace_loc, x.shape[1:], n_coils=coils, density=True)
 y_np = F_raw.op(x) # simulates the undersampled kspace volume y. The zero-filled recon comes from it
 
 # GRAPPA reconstruct the center of k-space and append the data, basis for our regularizers
-new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2))
+new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2), acs=acs)
 
 # Build reconstruction operator that ESTIMATES smaps from y_grappa
 E_est = get_operator(backend)(

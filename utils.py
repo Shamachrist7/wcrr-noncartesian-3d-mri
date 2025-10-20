@@ -5,6 +5,13 @@ import deepinv as dinv
 from deepinv.optim.utils import conjugate_gradient
 from deepinv.loss.metric import PSNR, SSIM
 
+def fft(x):
+    return np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(x, axes=(-3, -2, -1)), norm='ortho', axes=(-3, -2, -1)), axes=(-3, -2, -1))
+
+def simulate_acs_data(x, acs_shape=(24, 24)):
+    kspace = fft(x)
+    return kspace[:, :, kspace.shape[-2]//2 - acs_shape[0]//2 : kspace.shape[-2]//2 + acs_shape[0]//2, 
+                  kspace.shape[-1]//2 - acs_shape[1]//2 : kspace.shape[-1]//2 + acs_shape[1]//2]
 
 def sum_of_squares(img_channels: np.ndarray) -> np.ndarray:
     """Combines complex channels with square root sum of squares.
