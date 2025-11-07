@@ -1,4 +1,4 @@
-# Data-Adaptive Ridge Regularizers for Accelerated 3D Non-Cartesian Parallel MRI Reconstruction
+# Data-Driven Weakly-Convex Ridge Regularizer for Accelerated 3D Non-Cartesian Parallel MRI Reconstruction
 
 This `readme` file is structured into
 
