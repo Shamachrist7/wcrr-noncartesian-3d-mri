@@ -26,7 +26,8 @@ def bilevel_training(
     train_dataloader,
     val_dataloader,
     physics,
-    noise_generator,
+    sigma_min,
+    sigma_max,
     sigma_val,
     wandb_setup,
     fitting_only=False,
@@ -52,6 +53,7 @@ def bilevel_training(
     logger=None,
     dynamic_range_psnr=False,
     savestr=None,
+    gabor=False,
     upper_loss=lambda x, y: torch.sum(((x - y) ** 2).view(x.shape[0], -1), -1),
 ):
     assert validation_epochs <= epochs, (
@@ -173,6 +175,9 @@ def bilevel_training(
     else:
         psnr = PSNR()
 
+    # number of knots
+    K = regularizer.regularizer.scaling.K
+
     loss_train = []
     loss_val = []
     psnr_train = []
@@ -200,7 +205,6 @@ def bilevel_training(
             x = x.to(device).to(torch.float32)
             #sigma = noise_generator.step(x.shape[0])["sigma"] # drawing uniformly a random noise level for each image of in the batch separetly
             
-            sigma_min, sigma_max, K = 0.01, 0.1, 12
             knots= torch.linspace(sigma_min, sigma_max, K)
             perm = torch.randperm(K)       # a random permutation of 0..K-1
             idx = perm[:x.shape[0]]         # first x.shape[0] distinct random indices
@@ -294,15 +298,16 @@ def bilevel_training(
         loss_train.append(mean_train_loss)
         psnr_train.append(mean_train_psnr)
         
+        # To keep track of the evolution of the filters for the Gabor regularizer
+        if gabor:
+            filters = regularizer.compute_filters().detach().cpu()
+            filter_snapshots.append(filters)
+
         print_str = f"[Epoch {epoch+1}] Train Loss: {mean_train_loss:.2E}, PSNR: {mean_train_psnr:.2f}"
         print(print_str)
         if logger is not None:
             logger.info(print_str)
         wandb.log({"Epoch": epoch+1, "Gradient norm": grad_norm(regularizer), "Train Loss": mean_train_loss, "Train PSNR": mean_train_psnr})
-
-        # Save checkpoints every 100 epochs
-        if (epoch + 1) % 100 == 0:
-            torch.save(regularizer.state_dict(),f"weights/bilevel_Denoising/{wandb_setup["regularizer_name"]}_bilevel_IFT_ckpt_{epoch + 1}.pt")
 
         # ---- Validation ----
         if (epoch + 1) % validation_epochs == 0:
@@ -351,6 +356,12 @@ def bilevel_training(
                     logger.info(print_str)
                 wandb.log({"Val Loss": mean_val_loss, "Val PSNR": mean_val_psnr})
 
+                # save checkpoint whenever you validate
+                if fitting_only:
+                    torch.save(regularizer.state_dict(),f"weights/score_parameter_fitting_for_Denoising/{wandb_setup["regularizer_name"]}_fitted_parameters_with_IFT_ckpt_{epoch + 1}.pt")
+                else:
+                    torch.save(regularizer.state_dict(),f"weights/bilevel_Denoising/{wandb_setup["regularizer_name"]}_bilevel_IFT_ckpt_{epoch + 1}.pt")
+
                 # ---- Save best regularizer based on validation PSNR ----
                 if mean_val_psnr > best_val_psnr:
                     best_val_psnr = mean_val_psnr
@@ -360,4 +371,6 @@ def bilevel_training(
     regularizer.load_state_dict(best_regularizer_state)
     wandb.finish()
 
+    if gabor:
+        return regularizer, loss_train, loss_val, psnr_train, psnr_val, filter_snapshots
     return regularizer, loss_train, loss_val, psnr_train, psnr_val

@@ -19,7 +19,8 @@ def score_training(
     train_dataloader,
     val_dataloader,
     physics,
-    noise_generator,
+    sigma_min,
+    sigma_max,
     sigma_val,
     wandb_setup, # Dictionary
     epochs=100,
@@ -65,6 +66,9 @@ def score_training(
     else:
         psnr = PSNR()
 
+    # number of knots
+    K = regularizer.regularizer.scaling.K
+
     loss_train = []
     loss_val = []
     psnr_train = []
@@ -83,7 +87,6 @@ def score_training(
             x = x.to(device).to(torch.float32)
             #sigma = noise_generator.step(x.shape[0])["sigma"] # drawing uniformly a random noise level for each image of in the batch separetly
             
-            sigma_min, sigma_max, K = 0.01, 0.1, 12
             knots= torch.linspace(sigma_min, sigma_max, K)
             perm = torch.randperm(K)       # a random permutation of 0..K-1
             idx = perm[:x.shape[0]]         # first x.shape[0] distinct random indices
@@ -110,9 +113,6 @@ def score_training(
             logger.info(print_str)
         wandb.log({"Epoch": epoch+1, "Gradient norm":grad_norm(regularizer), "Train Loss": mean_train_loss, "Train PSNR": mean_train_psnr})
 
-        # Save checkpoints every 1000 epochs
-        if (epoch + 1) % 1000 == 0:
-            torch.save(regularizer.state_dict(),f"weights/score_for_Denoising/{wandb_setup["regularizer_name"]}_score_training_ckpt_{epoch + 1}.pt")
 
         if (epoch + 1) % validation_epochs == 0:
             regularizer.eval()
@@ -147,6 +147,9 @@ def score_training(
                 if logger is not None:
                     logger.info(print_str)
                 wandb.log({"Val Loss": mean_val_loss, "Val PSNR": mean_val_psnr})
+
+                # save checkpoint whenever you validate
+                torch.save(regularizer.state_dict(),f"weights/score_for_Denoising/{wandb_setup["regularizer_name"]}_score_training_ckpt_{epoch + 1}.pt")
 
                 """# ---- Save best regularizer based on validation PSNR ----
                 if mean_val_psnr > best_val_psnr:
