@@ -38,6 +38,7 @@ The Calgary Campinas Test data consist of 50 fully-sampled 12-coil k-space volum
 
 ## 3. Baseline reconstruction methods & Trainings
 We compare the *Weakly-Convex Ridge Regularizer (WCRR) + nmAPG (non-monotone Accelerated Proximal Gradient) solver* to the following baseline methods:
+- GRAPPA
 - Anisotropic Total Variation (TV) regularizer + ADMM (Alternating Direction Method of Multipliers) solver
 - $l_1$-wavelets regularizer + ADMM solver
 - Convex Ridge Regularizer (CRR) + nmAPG solver
@@ -51,4 +52,23 @@ Out of all of them, only WCRR, CRR and DRUNet require training. We can train eac
 
 
 ## 4. Hyperparameters tuning
+Three specific validation volumes are chosen, and all the hyperparameters in each reconstruction method are tuned on them. *GRAPPA*'s parameters are already appropriately chosen and do not require tuning. We can tune the hyperparameters of each of the other methods by runing the following commands:
+- For WCRR: ```python hyperparameters_tuning/tune_wcrr.py --root my_root_directory```
+- For CRR: ```python hyperparameters_tuning/tune_wcrr.py --root my_root_directory --regularizer_name "CRR"```
+- For PnP-DRUNet: ```python hyperparameters_tuning/tune_pnp_drunet.py --root my_root_directory```
+- For TV: ```python hyperparameters_tuning/tune_tv.py --root my_root_directory```
+- For $l1$-wavelets: ```python hyperparameters_tuning/tune_l1_wavelets.py --root my_root_directory```
 
+## 5. Reconstructions
+At the moment, the reconstructions with each method are performed on 10 specific validation volumes by running the following commands:
+- With WCRR: ```python reconstructions_wcrr.py --root my_root_directory```
+- With CRR: ```python reconstructions_wcrr.py --root my_root_directory --regularizer_name "CRR"```
+- With PnP-DRUNet: ```python reconstructions_pnp_drunet.py --root my_root_directory```
+- With TV: ```python reconstructions_tv.py --root my_root_directory```
+- With $l_1$-wavelets: ```python reconstructions_l1_wavelets.py --root my_root_directory```
+- GRAPPA reconstructions are automatically performed whenever one of the above reconstructions is launched, and the results are saved in wandb.
+
+These reconstructions files will be later on updated such as performing the reconstructions of the 100 12-coil and 32-coil Test MRI data instead.
+
+## 6. wandb routine to fetch the saved reconstruction results & visualize some reconstructions
+The notebook **results.ipynb** contains the wandb routine to fetch the saved reconstruction metrics, and also the routine to visualize some saved reconstructions.
