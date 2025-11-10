@@ -1,4 +1,5 @@
 import numpy as np
+import h5py
 import torch
 from mrinufft import get_operator
 import deepinv as dinv
@@ -21,6 +22,32 @@ def sum_of_squares(img_channels: np.ndarray) -> np.ndarray:
     """
     sos = np.sqrt((np.abs(img_channels) ** 2).sum(axis=0))
     return sos
+
+
+
+# -----------------------------------------------------------------
+# Preprocess the kspace volume and return the image domain version
+# -----------------------------------------------------------------
+def _load_volumes(filename, sr = 0.85 ):
+    with h5py.File(filename,'r') as h5obj :
+        kspace_hybrid = h5obj['kspace'][:]
+
+    # Explicit zero-filling after 85% in the slice-encoded direction
+    Nz = kspace_hybrid.shape[2]
+    Nz_sampled = int(np.ceil(Nz*sr))
+    kspace_hybrid[:,:,Nz_sampled:,:] = 0
+    kspace_hybrid = kspace_hybrid[:, :, :, ::2] + 1j * kspace_hybrid[:, :, :, 1::2] 
+    images = np.fft.ifft2(np.fft.ifftshift(kspace_hybrid, axes=[1,2]),axes=[1,2]) #from x,ky,kz to x,y,z
+    # Crop around center
+    VOLUME_SIZE = (256, 218, 170)
+
+    if images.shape[-2] != VOLUME_SIZE[-1]:
+        D = (images.shape[-2] - VOLUME_SIZE[-1]) // 2
+        images = images[:, :, D:-D,:]
+    images = images.astype(np.complex64)
+
+    return images
+
 
 # -----------------------------------
 # Utils: RI (Real-Imaginary)<->complex conversions
@@ -45,10 +72,10 @@ def complex_to_ri(x_c: torch.Tensor) -> torch.Tensor:
     return torch.cat([real, imag], dim=1).to(torch.float32)
     
 # -----------------------------------
-# Complex magnitude PSNR & SSIM (for both, x_rec & x_ref are assumed to be in the RI space)
+# Complex magnitude PSNR & SSIM (for both, x_rec & x_ref are assumed to be the Magnitudes of the volumes)
 # -----------------------------------
-psnr = lambda x_rec, x_ref: PSNR(max_pixel=None)(torch.abs(ri_to_complex(x_rec)).unsqueeze(0), torch.abs(ri_to_complex(x_ref)).unsqueeze(0))
-ssim = lambda x_rec, x_ref: SSIM(max_pixel=None)(torch.abs(ri_to_complex(x_rec)).unsqueeze(0), torch.abs(ri_to_complex(x_ref)).unsqueeze(0))
+psnr = lambda x_rec, x_ref: PSNR(max_pixel=None)(x_rec.unsqueeze(0), x_ref.unsqueeze(0))
+ssim = lambda x_rec, x_ref: SSIM(max_pixel=None)(x_rec.unsqueeze(0), x_ref.unsqueeze(0))
 
 # -----------------------------------
 # Physics wrapper for DeepInv in RI variable space
@@ -84,7 +111,6 @@ class MRINUFFTPhysicsRI(dinv.physics.Physics):
         """Jacobian–vector product for linear A is A v."""
         return self.A(v)
 
-    @torch.no_grad()
     def prox_l2(self, v, y, gamma: float, **kwargs):
         """
         Solve (I + gamma A^H A) x = v + gamma A^H y  with CG.
@@ -105,7 +131,6 @@ class MRINUFFTPhysicsRI(dinv.physics.Physics):
 # -----------------------------------
 # Spectral norm estimate (L) in RI space for stepsize
 # --------------------------------------
-@torch.no_grad()
 def power_iteration_L_RI(physics: MRINUFFTPhysicsRI, shape_ri, iters=20, device="cpu"):
     """
     Estimate L ≈ ||A||^2 for the linear map x_ri -> A(x_ri), with x_ri in RI space [1,2,H,W,D].
