@@ -11,13 +11,17 @@ This `readme` file contains all the necessary informations to run this repositor
 
 ## 1. Installations & Preliminaries
 
-To get started, clone the repository.
+To get started, clone the repository; And in the terminal you are going to run everything, set upstreamly:
+```
+export TF_ENABLE_ONEDNN_OPTS=0
+export TF_CPP_MIN_LOG_LEVEL=3
+```
 
 ### a. Installations
-The code relies mainly on [DeepInverse](https://deepinv.github.io), [MRI-NUFFT](https://mind-inria.github.io/mri-nufft/) and [GGRAPPA](https://github.com/mind-inria/ggrappa). For tuning hyperparameters, the Bayesian Optimizer [Optuna](https://optuna.org/) is used. [Weights & Biases](https://docs.wandb.ai/models/quickstart#command-line) is used to monitor, visualize and save the results of the different runs. All the necessary dependencies can be installed at once with the following command:
+The code relies mainly on [DeepInverse](https://deepinv.github.io), [MRI-NUFFT](https://mind-inria.github.io/mri-nufft/) and [GGRAPPA](https://github.com/mind-inria/ggrappa). [Weights & Biases](https://docs.wandb.ai/models/quickstart#command-line) is used to monitor, visualize and save the results of the different runs. All the necessary dependencies can be installed at once with the following command:
 
 ```
-pip install deepinv mri-nufft gpunufft cupy-cuda12x git+https://github.com/mind-inria/ggrappa optuna wandb
+pip install deepinv mri-nufft gpunufft cupy-cuda12x git+https://github.com/mind-inria/ggrappa wandb
 ```
 Note that a CUDA 12 machine is necessary. Previous versions might encounter some issues.
 
