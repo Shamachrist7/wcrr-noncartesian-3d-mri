@@ -1,4 +1,4 @@
-# Data-Driven Weakly-Convex Ridge Regularizer for Accelerated 3D Non-Cartesian Parallel MRI Reconstruction
+# Weakly Convex Ridge Regularizer for Accelerated 3D Non-Cartesian Parallel MRI Reconstruction
 
 This `readme` file contains all the necessary informations to run this repository and is structured into
 
