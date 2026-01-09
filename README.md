@@ -1,5 +1,16 @@
 # Weakly Convex Ridge Regularizer for Accelerated 3D Non-Cartesian Parallel MRI Reconstruction
 
+.. image:: https://github.com/deepinv/deepinv/raw/main/docs/source/figures/deepinv_schematic.png
+   :width: 1000px
+   :alt: deepinv schematic
+   :align: center
+
+
+
+
+
+
+
 This `readme` file contains all the necessary informations to run this repository and is structured into
 
 1. Installations & Preliminaries
