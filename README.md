@@ -1,7 +1,7 @@
 # Weakly Convex Ridge Regularizer for Accelerated 3D Non-Cartesian Parallel MRI Reconstruction
 
 <p align="center">
-  <img src="training_methods/train_and_recon_pipeline.png" width="600">
+  <img src="training_methods/train_and_recon_pipeline.png">
 </p>
 
 
