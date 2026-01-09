@@ -1,26 +1,17 @@
-# Weakly Convex Ridge Regularizer for Accelerated 3D Non-Cartesian Parallel MRI Reconstruction
+# Weakly Convex Ridge Regularization for Accelerated 3D Non-Cartesian Parallel MRI Reconstruction
 
-<p align="center">
-  <img src="reg_architectures/reg_architecture.png">
-</p>
-
-<p align="center">
-  <img src="training_methods/train_and_recon_pipeline.png">
-</p>
-
-
-
-
-
-
-This `readme` file contains all the necessary informations to run this repository and is structured into
-
-1. Installations & Preliminaries
-2. Data Processing
-3. Baseline reconstruction methods & Trainings
-4. Hyperparameters tuning
-5. Reconstructions
-6. wandb routine to fetch the saved reconstruction results & visualize some reconstructions
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="reg_architectures/reg_architecture.png" width="300"><br>
+      <b>(a) Regularizer Architecture</b>
+    </td>
+    <td align="center">
+      <img src="training_methods/train_and_recon_pipeline.png" width="300"><br>
+      <b>(b) Training and Reconstruction Pipeline</b>
+    </td>
+  </tr>
+</table>
 
 ## 1. Installations & Preliminaries
 
