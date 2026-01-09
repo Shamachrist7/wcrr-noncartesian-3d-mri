@@ -3,11 +3,11 @@
 <table align="center">
   <tr>
     <td align="center">
-      <img src="reg_architectures/reg_architecture.png" width="500"><br>
+      <img src="reg_architectures/reg_architecture.png" width="450"><br>
       <b>(a) Regularizer Architecture</b>
     </td>
     <td align="center">
-      <img src="training_methods/train_and_recon_pipeline.png" width="700"><br>
+      <img src="training_methods/train_and_recon_pipeline.png" width="750"><br>
       <b>(b) Training and Reconstruction Pipeline</b>
     </td>
   </tr>
