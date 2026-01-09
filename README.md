@@ -1,7 +1,7 @@
 # Weakly Convex Ridge Regularizer for Accelerated 3D Non-Cartesian Parallel MRI Reconstruction
 
 .. image:: https://github.com/Shamachrist7/wcrr-noncartesian-3d-mri/blob/main/reg_architectures/reg_architecture.pdf
-   :width: 1000px
+   :width: 500px
    :alt: deepinv schematic
    :align: center
 
