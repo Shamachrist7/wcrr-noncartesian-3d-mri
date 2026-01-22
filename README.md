@@ -22,10 +22,12 @@ export TF_CPP_MIN_LOG_LEVEL=3
 ```
 
 ### a. Installations
-The code relies mainly on [DeepInverse](https://deepinv.github.io), [MRI-NUFFT](https://mind-inria.github.io/mri-nufft/) and [GGRAPPA](https://github.com/mind-inria/ggrappa). [Weights & Biases](https://docs.wandb.ai/models/quickstart#command-line) is used to monitor, visualize and save the results of the different runs. All the necessary dependencies can be installed at once with the following command:
+The code relies mainly on [DeepInverse](https://deepinv.github.io), [MRI-NUFFT](https://mind-inria.github.io/mri-nufft/) and [GGRAPPA](https://github.com/mind-inria/ggrappa). [Weights & Biases](https://docs.wandb.ai/models/quickstart#command-line) is used to monitor, visualize and save the results of the different runs. All the necessary dependencies can be installed by executing:
 
 ```
-pip install deepinv mri-nufft gpunufft cupy-cuda12x git+https://github.com/mind-inria/ggrappa wandb
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip check
 ```
 Note that a CUDA 12 machine is necessary. Previous versions might encounter some issues.
 
@@ -66,7 +68,7 @@ Five specific validation volumes are chosen, and all the hyperparameters in each
 - For TV: ```python hyperparameters_tuning/tune_tv.py --root my_root_directory```
 - For $l1$-wavelets: ```python hyperparameters_tuning/tune_l1_wavelets.py --root my_root_directory```
 
-## 5. Reconstructions (Reproduce the results in the paper)
+## 5. Reconstructions (This reproduces the results in the paper!)
 The reconstructions with each method are performed on 30 testing volumes (among which the first 15 12-coil volumes and the first 15 32-coil volumes according to the alphabetical order of the volume file names) by running the following commands for coil = 12 and then for coil = 32:
 - With WCRR (rotation-invariant version): ```python reconstructions.py --method "wcrr" --coil coil --root my_root_directory```
 - With WCRR (non-rotation-invariant version): ```python reconstructions.py --method "wcrr_no_rot" --coil coil --root my_root_directory```
