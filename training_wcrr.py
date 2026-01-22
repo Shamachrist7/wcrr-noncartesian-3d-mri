@@ -3,7 +3,7 @@ import deepinv as dinv
 from deepinv.optim import L2
 from training_methods import bilevel_training, score_training
 from torchvision.transforms import RandomCrop, CenterCrop, Compose
-from reg_architectures import ParameterLearningWrapper, WCRR3D
+from reg_architectures import WCRR3D#, ParameterLearningWrapper
 from data_processing import load_data
 from tqdm import tqdm
 import numpy as np
@@ -32,7 +32,7 @@ load_pretrain = False  # load pretrained weights given that they exist
 load_parameter_fitting = (
     False  # load pretrained weights and learned regularization and scaling parameter
 )
-wandb_setup = {"project": regularizer_name + "_MRI_Denoiser", "regularizer_name": regularizer_name}
+wandb_setup = {"project": regularizer_name + "_3D_Denoiser", "regularizer_name": regularizer_name}
 
 sigma_min = 0.01
 sigma_max = 0.1
@@ -42,8 +42,8 @@ if regularizer_name == "CRR":
     pretrain_epochs = 1000
     pretrain_lr = 1e-2
     fitting_lr = 0.1
-    epochs = 500
-    lr = 1e-3
+    epochs = 100
+    lr = 1e-2
     adabelief = True
     jacobian_regularization = True
     jacobian_regularization_parameter = 1e-6
@@ -58,8 +58,8 @@ elif regularizer_name == "WCRR":
     pretrain_lr = 1e-2
     fitting_lr = 0.1
     adabelief = True
-    epochs = 500
-    lr = 1e-3
+    epochs = 100
+    lr = 1e-2
     jacobian_regularization = True
     jacobian_regularization_parameter = 1e-6
     regularizer = WCRR3D(
@@ -68,8 +68,23 @@ elif regularizer_name == "WCRR":
         filter_sizes=[3, 3, 3],
         rotations=True,
     ).to(device)
+elif regularizer_name == "WCRR_no_rotations":
+    pretrain_epochs = 1000
+    pretrain_lr = 1e-2
+    fitting_lr = 0.1
+    adabelief = True
+    epochs = 100
+    lr = 1e-2
+    jacobian_regularization = True
+    jacobian_regularization_parameter = 1e-6
+    regularizer = WCRR3D(
+        weak_convexity=1.0,
+        nb_channels=[2, 4, 8, 32],
+        filter_sizes=[3, 3, 3],
+        rotations=False,
+    ).to(device)
 
-regularizer = ParameterLearningWrapper(regularizer, device=device)
+#regularizer = ParameterLearningWrapper(regularizer, device=device)
 lmbd = 1.0
 
 
@@ -110,8 +125,8 @@ if load_pretrain and not load_parameter_fitting:
 elif not load_parameter_fitting:
     for p in regularizer.parameters():
         p.requires_grad_(True)
-    if regularizer_name == "WCRR":
-        regularizer.alpha.requires_grad_(False)
+    #if regularizer_name == "WCRR":
+    #    regularizer.alpha.requires_grad_(False)
     (
         regularizer,
         loss_train,
@@ -150,13 +165,13 @@ if load_parameter_fitting:
 else:
     for p in regularizer.parameters():
         p.requires_grad_(False)
-    regularizer.scale.requires_grad_(True)
-    if regularizer_name == "WCRR":
-        regularizer.alpha.requires_grad_(False)
-    else:
-        regularizer.alpha.requires_grad_(True)
-    regularizer.regularizer.beta.requires_grad_(True)
-    regularizer.regularizer.scaling.s_at_knots.requires_grad_(True)
+    #regularizer.scale.requires_grad_(True)
+    #if regularizer_name == "WCRR":
+    #    regularizer.alpha.requires_grad_(False)
+    #else:
+    #    regularizer.alpha.requires_grad_(True)
+    regularizer.beta.requires_grad_(True)
+    regularizer.scaling.s_at_knots.requires_grad_(True)
     
     regularizer, loss_train, loss_val, psnr_train, psnr_val = bilevel_training(
         regularizer,
@@ -187,17 +202,16 @@ else:
         f"weights/score_parameter_fitting_for_{problem}/{regularizer_name}_fitted_parameters_with_{hypergradient_computation}_for_{problem}.pt",
     )
 
-print(regularizer.alpha)
+# print(regularizer.alpha)
 # bilevel training
 
 for p in regularizer.parameters():
     p.requires_grad_(True)
-if regularizer_name == "WCRR":
-    regularizer.alpha.requires_grad_(False)
+#if regularizer_name == "WCRR":
+#    regularizer.alpha.requires_grad_(False)
 
 if not jacobian_regularization:
     jacobian_regularization_parameter = 0.0
-
 
 regularizer, loss_train, loss_val, psnr_train, psnr_val = bilevel_training(
     regularizer,
@@ -222,7 +236,7 @@ regularizer, loss_train, loss_val, psnr_train, psnr_val = bilevel_training(
     reg_para=jacobian_regularization_parameter,
     device=device,
     verbose=False,
-    validation_epochs=100,
+    validation_epochs=20, #100
     adabelief=adabelief,
 )
 

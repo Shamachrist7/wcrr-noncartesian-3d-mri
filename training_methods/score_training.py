@@ -67,7 +67,7 @@ def score_training(
         psnr = PSNR()
 
     # number of knots
-    K = regularizer.regularizer.scaling.K
+    K = regularizer.scaling.K
 
     loss_train = []
     loss_val = []

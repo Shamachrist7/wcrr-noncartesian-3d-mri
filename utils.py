@@ -5,6 +5,8 @@ from mrinufft import get_operator
 import deepinv as dinv
 from deepinv.optim.utils import conjugate_gradient
 from deepinv.loss.metric import PSNR, SSIM
+from deepinv.loss.metric.metric import Metric
+from deepinv.optim.data_fidelity import DataFidelity
 
 def fft(x):
     return np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(x, axes=(-3, -2, -1)), norm='ortho', axes=(-3, -2, -1)), axes=(-3, -2, -1))
@@ -20,7 +22,7 @@ def sum_of_squares(img_channels: np.ndarray) -> np.ndarray:
     :param img_channels: Complex channels
     :return: Combined image
     """
-    sos = np.sqrt((np.abs(img_channels) ** 2).sum(axis=0))
+    sos = torch.sqrt((torch.abs(img_channels) ** 2).sum(dim=0))
     return sos
 
 
@@ -77,6 +79,14 @@ def complex_to_ri(x_c: torch.Tensor) -> torch.Tensor:
 psnr = lambda x_rec, x_ref: PSNR(max_pixel=None)(x_rec.unsqueeze(0), x_ref.unsqueeze(0))
 ssim = lambda x_rec, x_ref: SSIM(max_pixel=None)(x_rec.unsqueeze(0), x_ref.unsqueeze(0))
 
+# helper to get the psnr history  during reconstructions from start to end
+class PSNR_MRI(Metric):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def metric(self, x_net, x, *args, **kwargs):
+        return PSNR(max_pixel=None)(torch.abs(ri_to_complex(x_net)).unsqueeze(0).cpu(), torch.abs(ri_to_complex(x)).unsqueeze(0).cpu())
+
 # -----------------------------------
 # Physics wrapper for DeepInv in RI variable space
 # -----------------------------------
@@ -87,59 +97,81 @@ class MRINUFFTPhysicsRI(dinv.physics.Physics):
     """
     def __init__(self, E):
         super().__init__()
-        self.E = E
+        self.E = E # nufft operator
 
     def A(self, x_ri: torch.Tensor) -> torch.Tensor:
         # [1,2,H,W,D] -> complex -> numpy -> NUFFT
-        x_c = ri_to_complex(x_ri).detach().cpu().numpy()
-        y_np = self.E.op(x_c)  # complex numpy with shape like [Nsamples, ncoils] (backend-dependent)
-        return torch.from_numpy(y_np).to(x_ri.device)
+        x_c = ri_to_complex(x_ri)#.detach().cpu().numpy()
+        y = self.E.op(x_c)  # complex numpy with shape like [Nsamples, ncoils] (backend-dependent)
+        return y#.to(x_ri.device)
 
     def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
         # complex torch (measurement domain) -> numpy -> adjoint NUFFT -> complex image -> RI 2ch
-        y_np = y.detach().cpu().numpy()
-        x_np = self.E.adj_op(y_np)  # complex numpy [H,W,D]
-        x_c = torch.from_numpy(x_np).to(y.device)
-        return complex_to_ri(x_c)
+        x_c = self.E.adj_op(y)  # complex numpy [H,W,D]
+        return complex_to_ri(x_c)#.to(y.device)
 
-    # >>> KEY OVERRIDES to avoid torch.func.vjp on numpy-bridged A <<< (It works here because, it's a linear operator)
-    def A_vjp(self, x, v):
-        """Vector–Jacobian product for linear A is A^H v."""
-        return self.A_adjoint(v)
-
-    def A_jvp(self, x, v):
-        """Jacobian–vector product for linear A is A v."""
-        return self.A(v)
-
-    def prox_l2(self, v, y, gamma: float, **kwargs):
+    def prox_l2_precon(self, v, y, gamma: float, weights=1.0, tol=1e-4, **kwargs):
         """
-        Solve (I + gamma A^H A) x = v + gamma A^H y  with CG.
+        Solve (I + gamma A^H weights A) x = v + gamma A^H weights y  with CG.
         v, return x have shape [B,2,H,W,D] (RI).
         y is complex torch tensor in the measurement domain.
         """
 
-        b = v + gamma * self.A_adjoint(y)
+        b = v + gamma * self.A_adjoint(weights * y)
 
         def M(z):
             Az  = self.A(z)
-            AHAz = self.A_adjoint(Az)
-            return z + gamma * AHAz
+            AHWAz = self.A_adjoint(weights * Az)
+            return z + gamma * AHWAz
       
-        x = conjugate_gradient(M, b, max_iter=2000, tol=1e-4)
+        x = conjugate_gradient(M, b, tol=tol)
         return x
 
-# -----------------------------------
-# Spectral norm estimate (L) in RI space for stepsize
-# --------------------------------------
-def power_iteration_L_RI(physics: MRINUFFTPhysicsRI, shape_ri, iters=20, device="cpu"):
+# Custom L2 data_fidelity preconditionned with the density compensation weights
+class L2_precon(DataFidelity):
+    r"""
+    Implementation of the data-fidelity as the normalized :math:`\ell_2` norm
+
+    .. math::
+
+        f(x) = \frac{1}{2}\|\weights^{0.5}(forw{x}-y)\|^2
+        Its gradient
+        And its proximity operator.
+
+    .. doctest::
+
     """
-    Estimate L ≈ ||A||^2 for the linear map x_ri -> A(x_ri), with x_ri in RI space [1,2,H,W,D].
-    """
-    z = torch.randn(*shape_ri, device=device)
-    z = z / (torch.linalg.vector_norm(z) + 1e-12)
-    val = torch.tensor(1.0, device=device)
-    for _ in range(iters):
-        w = physics.A_adjoint(physics.A(z))   # [1,2,H,W,D]
-        val = torch.tensordot(z, w, dims=len(z.shape))  # <z, w> in R
-        z = w / (torch.linalg.vector_norm(w) + 1e-12)
-    return float(max(val.item(), 1e-8))
+
+    def __init__(self, weights):
+        super().__init__()
+        self.weights = weights # density compensation weights
+
+    def fn(
+        self, x: torch.Tensor, y: torch.Tensor, physics, *args, **kwargs
+    ) -> torch.Tensor:
+        return 0.5 * (torch.abs(torch.sqrt(self.weights) * (physics.A(x) - y))**2).sum()
+
+    def grad(
+        self, x: torch.Tensor, y: torch.Tensor, physics, *args, **kwargs
+    ) -> torch.Tensor:
+        return physics.A_adjoint(self.weights * (physics.A(x) - y))
+
+    def prox(self, x: torch.Tensor, y: torch.Tensor, physics, *args, gamma: float | torch.Tensor = 1.0, tol=1e-4, **kwargs
+    ) -> torch.Tensor:
+        r"""
+        Proximal operator of :math:`\gamma \datafid{Ax}{y} = \frac{\gamma}{2\sigma^2}\|Ax-y\|^2`.
+
+        Computes :math:`\operatorname{prox}_{\gamma \datafidname}`, i.e.
+
+        .. math::
+
+           \operatorname{prox}_{\gamma \datafidname} = \underset{u}{\text{argmin}} \frac{\gamma}{2\sigma^2}\|Au-y\|_2^2+\frac{1}{2}\|u-x\|_2^2
+
+
+        :param torch.Tensor x: Variable :math:`x` at which the proximity operator is computed.
+        :param torch.Tensor y: Data :math:`y`.
+        :param deepinv.physics.Physics physics: physics model.
+        :param float gamma: stepsize of the proximity operator.
+        :return: (:class:`torch.Tensor`) proximity operator :math:`\operatorname{prox}_{\gamma \datafidname}(x)`.
+        """
+        return physics.prox_l2_precon(x, y, gamma, self.weights, tol=tol)

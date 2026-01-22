@@ -176,13 +176,12 @@ def bilevel_training(
         psnr = PSNR()
 
     # number of knots
-    K = regularizer.regularizer.scaling.K
+    K = regularizer.scaling.K
 
     loss_train = []
     loss_val = []
     psnr_train = []
     psnr_val = []
-    filter_snapshots = []  # To store filter evolution
 
     best_val_psnr = -float("inf")
     best_regularizer_state = copy.deepcopy(regularizer.state_dict())
