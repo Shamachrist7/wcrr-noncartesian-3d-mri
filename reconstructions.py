@@ -133,6 +133,7 @@ for i, volume in enumerate(volumes):
         # Clean up cupy memory
         cp._default_memory_pool.free_all_blocks()
         coils = y_np.shape[0]
+        F_raw = get_operator(backend)(kspace_loc, x.shape[1:], n_coils=coils, density=True)
     else:
         caipi_delta = 0
         # Calgary volumes are under the format [D,H,W,coils], and we convert to [coils,H,W,D] so that NUFFT works
