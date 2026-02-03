@@ -112,8 +112,9 @@ for i, volume in enumerate(volumes):
     if not inp.simulation:
         import nibabel as nib
         y_np, data_header = _load_volumes(os.path.join(root, volume))
-        x_gt = nib.load(os.path.join(os.path.join(root, volume)).replace('.dat', '.nii')).get_fdata()
+        x = torch.tensor(data_header['ref'], dtype=torch.complex64) 
         traj, traj_params = read_trajectory(os.path.join(root, "..", "traj", data_header['trajectory_name']), dwell_time=0.01/data_header['oversampling_factor'])
+        caipi_delta = 1
         y_np = add_phase_to_kspace_with_shifts(
             y_np, 
             traj.reshape(-1, traj_params["dimension"]),
@@ -133,6 +134,7 @@ for i, volume in enumerate(volumes):
         cp._default_memory_pool.free_all_blocks()
         coils = y_np.shape[0]
     else:
+        caipi_delta = 0
         # Calgary volumes are under the format [D,H,W,coils], and we convert to [coils,H,W,D] so that NUFFT works
         x = torch.from_numpy(scaler * np.moveaxis(_load_volumes(os.path.join(root, volume)),-1, 0)) #[coils,H,W,D] and complex dtype
         coils = x.shape[0] # number of coils in the volume
@@ -145,7 +147,7 @@ for i, volume in enumerate(volumes):
         print("Succesfully simulated!")
     # GRAPPA reconstruct the center of k-space, basis for our regularizers
     t1_grappa = time.time()
-    new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'])
+    new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'], caipi_delta=caipi_delta)
     dt1_grappa = time.time() - t1_grappa
     # Build reconstruction operator that ESTIMATES smaps from y_grappa
     print(f"Operator definition, DCp weights and smaps estimation from measurement {i+1}!")
@@ -164,17 +166,14 @@ for i, volume in enumerate(volumes):
     )
     physics = MRINUFFTPhysicsRI(E_est)
     print("Succesfull!")
-    
+    # Reference/Ground Truth (Adjoint coil combination)    
+    smaps = torch.from_numpy(E_est.smaps)
     y = torch.from_numpy(y_grappa).to(device) # ACS reconstructed with grappa (In the k-space)
     x_adj_ri = physics.A_adjoint(y) # Grappa adjoint without DCp (Initialization for all our iterative solvers)
-    # Reference/Ground Truth (Adjoint coil combination)
-    smaps = torch.from_numpy(E_est.smaps)
-    if inp.simulation:
-        x_gt = torch.sum(torch.conj(smaps) * x, axis=0)
-        x_gt_ri = complex_to_ri(x_gt).to(device) # In the RI space
-        reference = torch.abs(ri_to_complex(x_gt_ri)).detach().cpu()
-    else:
-        reference = torch.abs(x_gt)
+    # Reference/Ground Truth (Adjoint coil combination)    smaps = torch.from_numpy(E_est.smaps)
+    x_gt = torch.sum(torch.conj(smaps) * x, axis=0)
+    x_gt_ri = complex_to_ri(x_gt).to(device) # In the RI space
+    reference = torch.abs(ri_to_complex(x_gt_ri)).detach().cpu()
     # zero-filled + DCp recon
     t1_zf = time.time()
     x_zf = F_raw.adj_op(y_np) #zero-filled reconstruction

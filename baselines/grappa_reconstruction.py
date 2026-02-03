@@ -2,9 +2,10 @@ import torch
 import numpy as np    
 from ggrappa.grappaND import GRAPPA_Recon
 from ggrappa.utils import get_cart_portion_sparkling, get_grappa_filled_data_and_loc
+import warnings
+import scipy as sp
 
-
-def do_grappa_and_append_data(kspace_loc, kspace_data, traj_params, acs=None, af=(2, 2)):
+def do_grappa_and_append_data(kspace_loc, kspace_data, traj_params, acs=None, af=(2, 2), caipi_delta=0):
     """Perform GRAPPA reconstruction and append the data.
     This is a multi-coil GRAPPA reconstruction function that processes k-space data
     and appends the reconstructed data to the existing k-space locations and data.
@@ -32,6 +33,7 @@ def do_grappa_and_append_data(kspace_loc, kspace_data, traj_params, acs=None, af
         af=af,
         acs=torch.tensor(acs).permute(0, 2, 3, 1) if acs is not None else None,
         isGolfSparks=True,
+        delta=caipi_delta,
     )
     grappa_recon = grappa_recon.permute(0, 3, 1, 2).numpy()
     extra_loc, extra_data = get_grappa_filled_data_and_loc(gridded_center, grappa_recon, traj_params)

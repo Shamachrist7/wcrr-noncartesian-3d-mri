@@ -35,7 +35,7 @@ def sum_of_squares(img_channels: np.ndarray) -> np.ndarray:
 def _load_volumes(filename, sr = 0.85 ):
     if filename.endswith('.dat'):
         kspace_data, data_header = read_arbgrad_rawdat(filename)
-        cart_ref, cart_header = read_siemens_rawdat(filename.replace('.dat', '_ref.dat'), squeeze=False)
+        cart_ref, cart_header = read_siemens_rawdat(filename.replace('.dat', '_ref.dat'), reshape=False, return_twix=False, removeOS=True)
         cart_recon = ifft(cart_ref)
         data_header['ref'] = cart_recon
         return (kspace_data.astype(np.complex64).reshape(kspace_data.shape[0], -1), data_header)
