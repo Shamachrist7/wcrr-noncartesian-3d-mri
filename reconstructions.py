@@ -112,6 +112,7 @@ for i, volume in enumerate(volumes):
     if not inp.simulation:
         import nibabel as nib
         y_np, data_header = _load_volumes(os.path.join(root, volume))
+        y_np = y_np * 1e3 # Scale real data to same scale as simulations
         x = torch.tensor(data_header['ref'], dtype=torch.complex64) 
         traj, traj_params = read_trajectory(os.path.join(root, "..", "traj", data_header['trajectory_name']), dwell_time=0.01/data_header['oversampling_factor'])
         caipi_delta = 1
@@ -175,11 +176,6 @@ for i, volume in enumerate(volumes):
     x_gt = torch.sum(torch.conj(smaps) * x, axis=0)
     x_gt_ri = complex_to_ri(x_gt).to(device) # In the RI space
     reference = torch.abs(ri_to_complex(x_gt_ri)).detach().cpu()
-    # zero-filled + DCp recon
-    t1_zf = time.time()
-    x_zf = F_raw.adj_op(y_np) #zero-filled reconstruction
-    dt_zf = time.time() - t1_zf
-    zf_recon = sum_of_squares(x_zf) # Its magnitude
     # Grappa + DCp recon
     t2_grappa = time.time()
     dcp_x_adj_ri = physics.A_adjoint(weights * y).detach().cpu()
@@ -290,10 +286,9 @@ for i, volume in enumerate(volumes):
             dt = time.time() - t1_wcrr_no_rot                 
         recon  = torch.abs(ri_to_complex(x_rec_ri_wcrr_no_rot))#.detach().cpu() # Its magnitude
     # Log all the metrics to weights and biases (psnr, ssim and time)
-    wandb.log({"volume_idx": i, "psnr_zf": psnr(zf_recon, reference), "ssim_zf": ssim(zf_recon, reference), "psnr_grappa": psnr(grappa_recon, reference), "ssim_grappa": ssim(grappa_recon, reference), f"psnr_{method.lower()}": psnr(recon, reference), f"ssim_{method.lower()}": ssim(recon, reference), "time_zf": dt_zf, "time_grappa": dt1_grappa+dt2_grappa, f"time_{method.lower()}": dt})
+    wandb.log({"volume_idx": i, "psnr_grappa": psnr(grappa_recon, reference), "ssim_grappa": ssim(grappa_recon, reference), f"psnr_{method.lower()}": psnr(recon, reference), f"ssim_{method.lower()}": ssim(recon, reference), "time_grappa": dt1_grappa+dt2_grappa, f"time_{method.lower()}": dt})
     if i < 10:
         torch.save(reference, f"savings_{coil}coil/volume_{i}_gt.pt")
-        torch.save(zf_recon, f"savings_{coil}coil/volume_{i}_zf.pt")
         torch.save(grappa_recon, f"savings_{coil}coil/volume_{i}_grappa.pt")
         torch.save(recon, f"savings_{coil}coil/volume_{i}_{method.lower()}.pt")
     # 1) Break references to gpuNUFFT operators & physics (most important)
@@ -314,7 +309,7 @@ for i, volume in enumerate(volumes):
         "x_rec_ri_wcrr", "x_rec_ri_wcrr_no_rot",
         "tv_recon", "wv_recon", "drunet_recon",
         "wcrr_recon", "wcrr_no_rot_recon",
-        "reference", "zf_recon", "grappa_recon",
+        "reference", "grappa_recon",
         "new_kspace_loc", "drunet",
     ]:
         if name in locals():
