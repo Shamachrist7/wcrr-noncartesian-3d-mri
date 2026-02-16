@@ -109,7 +109,11 @@ for i, volume in enumerate(volumes):
         print("Start ... ")
         F_raw = get_operator(backend)(kspace_loc, x.shape[1:], n_coils=coils, density=True)
         y_np = F_raw.op(x) # simulates the undersampled kspace volume y. The zero-filled recon comes from it
-        y_np = y_np + noise_level * torch.randn_like(y_np)
+        z = (
+            torch.randn_like(y_np)
+            + 1j * torch.randn_like(y_np)
+        )
+        y_np = y_np + noise_level * z  
         print("Succesfully simulated!")
     
         # GRAPPA reconstruct the center of k-space, basis for our regularizers
