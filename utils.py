@@ -7,6 +7,8 @@ from deepinv.optim.utils import conjugate_gradient
 from deepinv.loss.metric import PSNR, SSIM
 from deepinv.loss.metric.metric import Metric
 from deepinv.optim.data_fidelity import DataFidelity
+from mrinufft.io import read_arbgrad_rawdat, read_siemens_rawdat
+from mrinufft.extras.cartesian import ifft
 
 def fft(x):
     return np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(x, axes=(-3, -2, -1)), norm='ortho', axes=(-3, -2, -1)), axes=(-3, -2, -1))
@@ -31,6 +33,12 @@ def sum_of_squares(img_channels: np.ndarray) -> np.ndarray:
 # Preprocess the kspace volume and return the image domain version
 # -----------------------------------------------------------------
 def _load_volumes(filename, sr = 0.85 ):
+    if filename.endswith('.dat'):
+        kspace_data, data_header = read_arbgrad_rawdat(filename)
+        cart_ref, cart_header = read_siemens_rawdat(filename.replace('.dat', '_ref.dat'), reshape=False, return_twix=False, removeOS=True)
+        cart_recon = ifft(cart_ref)
+        data_header['ref'] = cart_recon
+        return (kspace_data.astype(np.complex64).reshape(kspace_data.shape[0], -1), data_header)
     with h5py.File(filename,'r') as h5obj :
         kspace_hybrid = h5obj['kspace'][:]
 
