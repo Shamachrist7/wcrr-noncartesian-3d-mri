@@ -155,14 +155,14 @@ for i, volume in enumerate(volumes):
         print("Succesfully simulated!")
     # GRAPPA reconstruct the center of k-space, basis for our regularizers
     grappa_recon_done = True
+    t1_grappa = time.time()
     try:
-        t1_grappa = time.time()
         new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'], caipi_delta=caipi_delta)
-        dt1_grappa = time.time() - t1_grappa
     except:
         grappa_recon_done = False
         print("GRAPPA reconstruction failed, trying SENSE")
         new_kspace_loc, y_grappa = kspace_loc, y_np
+    dt1_grappa = time.time() - t1_grappa
     # Build reconstruction operator that ESTIMATES smaps from y_grappa
     print(f"Operator definition, DCp weights and smaps estimation from measurement {i+1}!")
     print("Start ... ")
