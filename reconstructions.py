@@ -118,7 +118,7 @@ for i, volume in enumerate(volumes):
         y_np = y_np * 1e3 / 0.9 # Scale real data to same scale as simulations
         C, *XYZ = data_header['ref'].shape
         x = torch.tensor(ifft((cp.asarray(V) @ fft(cp.asarray(data_header['ref'])).reshape(C, -1)).reshape(V.shape[0], *XYZ)), dtype=torch.complex64).cpu()
-        traj, traj_params = read_trajectory(os.path.join(root, "..", "traj", data_header['trajectory_name']), dwell_time=0.01/data_header['oversampling_factor'])
+        traj, traj_params = read_trajectory(os.path.join(root, "traj", data_header['trajectory_name']), dwell_time=0.01/data_header['oversampling_factor'])
         
         caipi_delta = 1
         y_np = add_phase_to_kspace_with_shifts(
