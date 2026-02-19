@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from mrinufft import get_operator
 from mrinufft.io import read_trajectory
 from mrinufft.io.utils import add_phase_to_kspace_with_shifts
-from mrinufft.extras.smaps import cartesian_espirit
+from mrinufft.extras.smaps import cartesian_espirit, coil_compression
 from baselines.grappa_reconstruction import do_grappa_and_append_data
 from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, sum_of_squares, _load_volumes, PSNR_MRI, L2_precon
 from reg_architectures import WCRR3D
@@ -110,11 +110,16 @@ if method.lower()=="wcrr_no_rot":
 
 for i, volume in enumerate(volumes):
     if not inp.simulation:
-        import nibabel as nib
+        from mrinufft.extras.cartesian import fft, ifft
+        import cupy as cp
         y_np, data_header = _load_volumes(os.path.join(root, volume))
-        y_np = y_np * 1e3 # Scale real data to same scale as simulations
-        x = torch.tensor(data_header['ref'], dtype=torch.complex64) 
+
+        y_np, V = coil_compression(y_np, 0.9)
+        y_np = y_np * 1e3 / 0.9 # Scale real data to same scale as simulations
+        C, *XYZ = data_header['ref'].shape
+        x = torch.tensor(ifft((cp.asarray(V) @ fft(cp.asarray(data_header['ref'])).reshape(C, -1)).reshape(V.shape[0], *XYZ)), dtype=torch.complex64).cpu()
         traj, traj_params = read_trajectory(os.path.join(root, "..", "traj", data_header['trajectory_name']), dwell_time=0.01/data_header['oversampling_factor'])
+        
         caipi_delta = 1
         y_np = add_phase_to_kspace_with_shifts(
             y_np, 
@@ -130,7 +135,8 @@ for i, volume in enumerate(volumes):
         traj[traj > 0.5] = 0.5
         kspace_loc = traj.reshape(-1, traj_params["dimension"])
         # @Shama you can use ESPIRiT like this to get the smaps from the acs data in data_header['acs'], we started doing external ACS acquisitions for all current acquisitions
-        smaps = cartesian_espirit(cp.array(data_header['acs'], dtype=cp.complex64), traj_params['img_size'], decim=4, crop=0).get()
+        C, *XYZ = data_header['acs'].shape
+        smaps = cartesian_espirit(cp.array((V @ data_header['acs'].reshape(C, -1)).reshape(V.shape[0], *XYZ), dtype=cp.complex64), traj_params['img_size'], decim=4, crop=0).get()
         # Clean up cupy memory
         cp._default_memory_pool.free_all_blocks()
         coils = y_np.shape[0]
