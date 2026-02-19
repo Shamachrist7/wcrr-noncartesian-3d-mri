@@ -148,9 +148,15 @@ for i, volume in enumerate(volumes):
         y_np = y_np + noise_level * torch.randn_like(y_np)
         print("Succesfully simulated!")
     # GRAPPA reconstruct the center of k-space, basis for our regularizers
-    t1_grappa = time.time()
-    new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'], caipi_delta=caipi_delta)
-    dt1_grappa = time.time() - t1_grappa
+    grappa_recon_done = True
+    try:
+        t1_grappa = time.time()
+        new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'], caipi_delta=caipi_delta)
+        dt1_grappa = time.time() - t1_grappa
+    except:
+        grappa_recon_done = False
+        print("GRAPPA reconstruction failed, trying SENSE")
+        new_kspace_loc, y_grappa = kspace_loc, y_np
     # Build reconstruction operator that ESTIMATES smaps from y_grappa
     print(f"Operator definition, DCp weights and smaps estimation from measurement {i+1}!")
     print("Start ... ")
@@ -171,7 +177,11 @@ for i, volume in enumerate(volumes):
     # Reference/Ground Truth (Adjoint coil combination)    
     smaps = torch.from_numpy(E_est.smaps)
     y = torch.from_numpy(y_grappa).to(device) # ACS reconstructed with grappa (In the k-space)
-    x_adj_ri = physics.A_adjoint(y) # Grappa adjoint without DCp (Initialization for all our iterative solvers)
+    if grappa_recon_done:
+        x_adj_ri = physics.A_adjoint(y) # Grappa adjoint without DCp (Initialization for all our iterative solvers)
+    else:
+         # If GRAPPA failed, we fall back to the pinv of the estimated NUFFT operator
+        x_adj_ri = physics.A_dagger(y).detach().cpu()
     # Reference/Ground Truth (Adjoint coil combination)    smaps = torch.from_numpy(E_est.smaps)
     x_gt = torch.sum(torch.conj(smaps) * x, axis=0)
     x_gt_ri = complex_to_ri(x_gt).to(device) # In the RI space

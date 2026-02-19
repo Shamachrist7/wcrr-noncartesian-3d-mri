@@ -1,14 +1,13 @@
 import numpy as np
 import h5py
 import torch
-from mrinufft import get_operator
 import deepinv as dinv
 from deepinv.optim.utils import conjugate_gradient
 from deepinv.loss.metric import PSNR, SSIM
 from deepinv.loss.metric.metric import Metric
 from deepinv.optim.data_fidelity import DataFidelity
-from mrinufft.io import read_arbgrad_rawdat, read_siemens_rawdat
-from mrinufft.extras.cartesian import ifft
+from mrinufft.io import read_arbgrad_rawdat
+import nibabel as nib
 
 def fft(x):
     return np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(x, axes=(-3, -2, -1)), norm='ortho', axes=(-3, -2, -1)), axes=(-3, -2, -1))
@@ -35,9 +34,7 @@ def sum_of_squares(img_channels: np.ndarray) -> np.ndarray:
 def _load_volumes(filename, sr = 0.85 ):
     if filename.endswith('.dat'):
         kspace_data, data_header = read_arbgrad_rawdat(filename)
-        cart_ref, cart_header = read_siemens_rawdat(filename.replace('.dat', '_ref.dat'), reshape=False, return_twix=False, removeOS=True)
-        cart_recon = ifft(cart_ref)
-        data_header['ref'] = cart_recon
+        data_header['ref'] = nib.load(filename.replace('.dat', '_ref.nii.gz')).get_fdata(dtype=np.complex64)
         return (kspace_data.astype(np.complex64).reshape(kspace_data.shape[0], -1), data_header)
     with h5py.File(filename,'r') as h5obj :
         kspace_hybrid = h5obj['kspace'][:]
@@ -134,6 +131,9 @@ class MRINUFFTPhysicsRI(dinv.physics.Physics):
       
         x = conjugate_gradient(M, b, tol=tol)
         return x
+    
+    def A_dagger(self, y, x_init=None, max_iter=10):
+        return self.E.pinv_solver(y, max_iter=max_iter, x0=x_init)
 
 # Custom L2 data_fidelity preconditionned with the density compensation weights
 class L2_precon(DataFidelity):
