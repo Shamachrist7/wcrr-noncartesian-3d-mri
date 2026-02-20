@@ -13,6 +13,7 @@ from reg_architectures import WCRR3D
 from deepinv.optim.prior import PnP, TVPrior, WaveletPrior
 from deepinv.optim import ADMM#, HQS
 from baselines.drunet.drunet_base import DRUNet
+from baselines.ncpdnet import NCPDNET
 from evaluation.nmAPG3d_evaluation import reconstruct_nmAPG
 import deepinv as dinv
 from mrinufft import get_density
@@ -38,7 +39,7 @@ parser.add_argument("--compress_coil", type=float, default=-1)
 parser.add_argument("--volume_id", type=int, default=-1)
 inp = parser.parse_args()
 coil = inp.coil # 12 or 32
-method = inp.method # "wcrr", "tv", "wv", "drunet", "wcrr_no_rot"
+method = inp.method # "wcrr", "tv", "wv", "drunet", "wcrr_no_rot", "ncpdnet"
 if inp.simulation:
     root = inp.root + f"/Test/{coil}coil"
 else:
@@ -112,6 +113,17 @@ if method.lower()=="wcrr_no_rot":
     lmbd_wcrr_no_rot = 0.1
     sigma_wcrr_no_rot = 0.025
     sigma_wcrr_no_rot = torch.tensor([sigma_wcrr_no_rot], device=device)
+##### NC-PDNet #####
+if method.lower()=="ncpdnet":
+    class DummyNUFFT:
+        def op(self, x):
+            return x  
+        def adj_op(self, kspace, dcomp=None):
+            return torch.zeros_like(kspace)
+    dummy_nufft = DummyNUFFT()
+    ncpdnet = NCPDNET(nufft_op=dummy_nufft, image_net_type="ImageNetUnet", base_filters=16, num_stages=3, n_primal=2, n_iter=6, activation="silu", dim=3, complex_recon=True, normalize_input=True)
+    weights = torch.load("./weights/ncpdnet/ncpdnet_weights.pth", map_location=device, weights_only=True)
+    ncpdnet.load_state_dict(weights["state_dict"])
 
 # reconstructions
 
@@ -185,7 +197,7 @@ for i, volume in enumerate(volumes):
     
     E_est = get_operator(backend)(
         new_kspace_loc,
-        traj_params['img_size'],
+        x.shape[1:],
         n_coils=coils,
         smaps={"name": "low_frequency", "kspace_data": y_grappa} if inp.simulation else smaps,
         density= False,
@@ -314,6 +326,25 @@ for i, volume in enumerate(volumes):
                     ).detach().cpu()
             dt = time.time() - t1_wcrr_no_rot                 
         recon  = torch.abs(ri_to_complex(x_rec_ri_wcrr_no_rot))#.detach().cpu() # Its magnitude
+                # NC-PDnet recon
+    if method.lower()=="ncpdnet":
+        ncpdnet.update_nufft_op(
+            get_operator(backend)(
+                E_est.samples, 
+                E_est.shape, 
+                n_coils=coils, 
+                density=True,
+                smaps={"name": "low_frequency", "kspace_data": y_grappa},
+                use_gpu_direct=True,
+                squeeze_dims=False, #preserve batch dim 
+                )
+            )
+        ncpdnet.to(device).eval()
+        with torch.no_grad():
+            t1_ncpdnet = time.time()
+            recon = ncpdnet(y.unsqueeze(0)).squeeze().detach().cpu() 
+            recon = torch.abs(recon)
+            dt = time.time() - t1_ncpdnet
     # Log all the metrics to weights and biases (psnr, ssim and time)
     wandb.log({"volume_idx": i if volume_id == -1 else volume_id, "psnr_grappa": psnr(grappa_recon, reference), "ssim_grappa": ssim(grappa_recon, reference), f"psnr_{method.lower()}": psnr(recon, reference), f"ssim_{method.lower()}": ssim(recon, reference), "time_grappa": dt1_grappa+dt2_grappa, f"time_{method.lower()}": dt})
     if i < 10:
