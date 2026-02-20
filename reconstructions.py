@@ -10,6 +10,7 @@ from reg_architectures import WCRR3D
 from deepinv.optim.prior import PnP, TVPrior, WaveletPrior
 from deepinv.optim import ADMM#, HQS
 from baselines.drunet.drunet_base import DRUNet
+from baselines.ncpdnet import NCPDNET
 from evaluation.nmAPG3d_evaluation import reconstruct_nmAPG
 import deepinv as dinv
 from mrinufft import get_density
@@ -31,7 +32,7 @@ parser.add_argument("--method", type=str, default="WCRR")
 parser.add_argument("--coil", type=int, default=12)
 inp = parser.parse_args()
 coil = inp.coil # 12 or 32
-method = inp.method # "wcrr", "tv", "wv", "drunet", "wcrr_no_rot"
+method = inp.method # "wcrr", "tv", "wv", "drunet", "wcrr_no_rot", "ncpdnet"
 root = inp.root + f"/Test/{coil}coil"
 
 wandb.init(
@@ -95,6 +96,17 @@ if method.lower()=="wcrr_no_rot":
     lmbd_wcrr_no_rot = 0.1
     sigma_wcrr_no_rot = 0.025
     sigma_wcrr_no_rot = torch.tensor([sigma_wcrr_no_rot], device=device)
+##### NC-PDNet #####
+if method.lower()=="ncpdnet":
+    class DummyNUFFT:
+        def op(self, x):
+            return x  
+        def adj_op(self, kspace, dcomp=None):
+            return torch.zeros_like(kspace)
+    dummy_nufft = DummyNUFFT()
+    ncpdnet = NCPDNET(nufft_op=dummy_nufft, image_net_type="ImageNetUnet", base_filters=16, num_stages=3, n_primal=2, n_iter=6, activation="silu", dim=3, complex_recon=True, normalize_input=True)
+    weights = torch.load("./weights/ncpdnet/ncpdnet_weights.pth", map_location=device, weights_only=True)
+    ncpdnet.load_state_dict(weights["state_dict"])
 
 # reconstructions
 
@@ -109,11 +121,7 @@ for i, volume in enumerate(volumes):
         print("Start ... ")
         F_raw = get_operator(backend)(kspace_loc, x.shape[1:], n_coils=coils, density=True)
         y_np = F_raw.op(x) # simulates the undersampled kspace volume y. The zero-filled recon comes from it
-        z = (
-            torch.randn_like(y_np)
-            + 1j * torch.randn_like(y_np)
-        )
-        y_np = y_np + noise_level * z  
+        y_np = y_np + noise_level * torch.randn_like(y_np) 
         print("Succesfully simulated!")
     
         # GRAPPA reconstruct the center of k-space, basis for our regularizers
@@ -262,6 +270,25 @@ for i, volume in enumerate(volumes):
                         ).detach().cpu()
                 dt = time.time() - t1_wcrr_no_rot                 
             recon  = torch.abs(ri_to_complex(x_rec_ri_wcrr_no_rot))#.detach().cpu() # Its magnitude
+        # NC-PDnet recon
+        if method.lower()=="ncpdnet":
+            ncpdnet.update_nufft_op(
+                get_operator(backend)(
+                    E_est.samples, 
+                    E_est.shape, 
+                    n_coils=coils, 
+                    density=True,
+                    smaps={"name": "low_frequency", "kspace_data": y_grappa},
+                    use_gpu_direct=True,
+                    squeeze_dims=False, #preserve batch dim 
+                    )
+                )
+            ncpdnet.to(device).eval()
+            with torch.no_grad():
+                t1_ncpdnet = time.time()
+                recon = ncpdnet(y.unsqueeze(0)).squeeze().detach().cpu() 
+                recon = torch.abs(recon)
+                dt = time.time() - t1_ncpdnet   
         # Log all the metrics to weights and biases (psnr, ssim and time)
         wandb.log({"volume_idx": i, "psnr_zf": psnr(zf_recon, reference), "ssim_zf": ssim(zf_recon, reference), "psnr_grappa": psnr(grappa_recon, reference), "ssim_grappa": ssim(grappa_recon, reference), f"psnr_{method.lower()}": psnr(recon, reference), f"ssim_{method.lower()}": ssim(recon, reference), "time_zf": dt_zf, "time_grappa": dt1_grappa+dt2_grappa, f"time_{method.lower()}": dt})
         if i < 10:
