@@ -60,7 +60,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 backend = "gpunufft"
 scaler = 1e-6 # data normalizer
 noise_level = 2e-3
-max_iter = 1 # Maximum number of iterations
+max_iter = 30 # Maximum number of iterations
 thres_conv = 1e-3 # convergence threshold
 
 if inp.simulation:
@@ -200,7 +200,7 @@ for i, volume in enumerate(volumes):
         x_adj_ri = physics.A_adjoint(y) # Grappa adjoint without DCp (Initialization for all our iterative solvers)
     else:
          # If GRAPPA failed, we fall back to the pinv of the estimated NUFFT operator
-        x_adj_ri = physics.A_dagger(y).detach().cpu()
+        x_adj_ri = physics.A_dagger(y).to(device)
     # Reference/Ground Truth (Adjoint coil combination)    smaps = torch.from_numpy(E_est.smaps)
     x_gt = torch.sum(torch.conj(smaps) * x, axis=0)
     x_gt_ri = complex_to_ri(x_gt).to(device) # In the RI space

@@ -19,7 +19,7 @@
 #SBATCH --output=%x_%A_%a.out # nom du fichier de sortie
 #SBATCH --error=%x_%A_%a.out  # nom du fichier d'erreur (ici commun avec la sortie)
 #SBATCH --wckey=submitit
-#SBATCH --array=0-15
+#SBATCH --array=0-3
 
 #SBATCH -L fs_store,fs_work
 
@@ -42,7 +42,7 @@ cc=(-1 0.95)
 folder=(long short)
 for I in 0 1
 do
-for method in drunet wv wcrr tv 
+for method in wv 
 do
 	for vid in 0 1
 	do
