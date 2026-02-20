@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from mrinufft import get_operator
 from mrinufft.io import read_trajectory
 from baselines.grappa_reconstruction import do_grappa_and_append_data
-from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, sum_of_squares, _load_volumes, PSNR_MRI, L2_precon
+from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, sum_of_squares, _load_volumes, PSNR_MRI, L2_precon, normalize_kspace
 from reg_architectures import WCRR3D
 from deepinv.optim.prior import PnP, TVPrior, WaveletPrior
 from deepinv.optim import ADMM#, HQS
@@ -272,6 +272,8 @@ for i, volume in enumerate(volumes):
             recon  = torch.abs(ri_to_complex(x_rec_ri_wcrr_no_rot))#.detach().cpu() # Its magnitude
         # NC-PDnet recon
         if method.lower()=="ncpdnet":
+            yn, norm_fact = normalize_kspace(y_grappa, E_est.samples) #normalize wrt energy of central region
+            y = torch.from_numpy(yn).to(device)
             ncpdnet.update_nufft_op(
                 get_operator(backend)(
                     E_est.samples, 
@@ -287,6 +289,7 @@ for i, volume in enumerate(volumes):
             with torch.no_grad():
                 t1_ncpdnet = time.time()
                 recon = ncpdnet(y.unsqueeze(0)).squeeze().detach().cpu() 
+                recon = recon * norm_fact
                 recon = torch.abs(recon)
                 dt = time.time() - t1_ncpdnet   
         # Log all the metrics to weights and biases (psnr, ssim and time)
