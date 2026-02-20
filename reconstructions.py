@@ -31,8 +31,11 @@ torch.random.manual_seed(seed)  # make results deterministic
 parser = argparse.ArgumentParser(description="reconstructions")
 parser.add_argument("--root", type=str, default='../../../../../../../../LOCAL/mri_data')
 parser.add_argument("--method", type=str, default="WCRR")
+parser.add_argument("--folder", type=str, default="savings")
 parser.add_argument("--coil", type=int, default=12)
 parser.add_argument("--simulation", type=int, default=1)
+parser.add_argument("--compress_coil", type=float, default=-1)
+parser.add_argument("--volume_id", type=int, default=-1)
 inp = parser.parse_args()
 coil = inp.coil # 12 or 32
 method = inp.method # "wcrr", "tv", "wv", "drunet", "wcrr_no_rot"
@@ -49,13 +52,15 @@ wandb.init(
         "max_iter": 40,
         "noise_level": 2e-3,
         })
-os.makedirs(f"savings_{coil}coil", exist_ok=True)
+volume_id = inp.volume_id
+start_dir = inp.folder
+os.makedirs(f"{start_dir}_{coil}coil", exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 backend = "gpunufft"
 scaler = 1e-6 # data normalizer
 noise_level = 2e-3
-max_iter = 30 # Maximum number of iterations
+max_iter = 1 # Maximum number of iterations
 thres_conv = 1e-3 # convergence threshold
 
 if inp.simulation:
@@ -69,8 +74,10 @@ if inp.simulation:
     kspace_loc = traj.reshape(-1, dim)
 else:
     # your 50 multi-coil volumes (12 or 32 coils)
-    volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".dat")])[:1]
+    volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".dat")])
 
+volumes = [volumes[inp.volume_id]] if inp.volume_id != -1 else volumes
+print(volumes)
 
 ##### PnP-DRUNet pior and hyperparameters #####
 if method.lower()=="drunet":
@@ -113,11 +120,14 @@ for i, volume in enumerate(volumes):
         from mrinufft.extras.cartesian import fft, ifft
         import cupy as cp
         y_np, data_header = _load_volumes(os.path.join(root, volume))
-
-        y_np, V = coil_compression(y_np, 0.9)
-        y_np = y_np * 1e3 / 0.9 # Scale real data to same scale as simulations
+        if inp.compress_coil > 0:
+            y_np, V = coil_compression(y_np, 0.9)
+        y_np = y_np * 1e3 #/ 0.9 # Scale real data to same scale as simulations
         C, *XYZ = data_header['ref'].shape
-        x = torch.tensor(ifft((cp.asarray(V) @ fft(cp.asarray(data_header['ref'])).reshape(C, -1)).reshape(V.shape[0], *XYZ)), dtype=torch.complex64).cpu()
+        if inp.compress_coil > 0:
+            x = torch.tensor(ifft((cp.asarray(V) @ fft(cp.asarray(data_header['ref'])).reshape(C, -1)).reshape(V.shape[0], *XYZ)), dtype=torch.complex64).cpu()
+        else:
+            x = torch.tensor(data_header['ref'], dtype=torch.complex64)
         traj, traj_params = read_trajectory(os.path.join(root, "traj", data_header['trajectory_name']), dwell_time=0.01/data_header['oversampling_factor'])
         
         caipi_delta = 1
@@ -136,7 +146,10 @@ for i, volume in enumerate(volumes):
         kspace_loc = traj.reshape(-1, traj_params["dimension"])
         # @Shama you can use ESPIRiT like this to get the smaps from the acs data in data_header['acs'], we started doing external ACS acquisitions for all current acquisitions
         C, *XYZ = data_header['acs'].shape
-        smaps = cartesian_espirit(cp.array((V @ data_header['acs'].reshape(C, -1)).reshape(V.shape[0], *XYZ), dtype=cp.complex64), traj_params['img_size'], decim=4, crop=0).get()
+        if inp.compress_coil > 0:
+            smaps = cartesian_espirit(cp.array((V @ data_header['acs'].reshape(C, -1)).reshape(V.shape[0], *XYZ), dtype=cp.complex64), traj_params['img_size'], decim=4, crop=0).get()
+        else:
+            smaps = cartesian_espirit(cp.asarray(data_header['acs'], dtype=cp.complex64), traj_params['img_size'], decim=4, crop=0).get()
         # Clean up cupy memory
         cp._default_memory_pool.free_all_blocks()
         coils = y_np.shape[0]
@@ -302,11 +315,11 @@ for i, volume in enumerate(volumes):
             dt = time.time() - t1_wcrr_no_rot                 
         recon  = torch.abs(ri_to_complex(x_rec_ri_wcrr_no_rot))#.detach().cpu() # Its magnitude
     # Log all the metrics to weights and biases (psnr, ssim and time)
-    wandb.log({"volume_idx": i, "psnr_grappa": psnr(grappa_recon, reference), "ssim_grappa": ssim(grappa_recon, reference), f"psnr_{method.lower()}": psnr(recon, reference), f"ssim_{method.lower()}": ssim(recon, reference), "time_grappa": dt1_grappa+dt2_grappa, f"time_{method.lower()}": dt})
+    wandb.log({"volume_idx": i if volume_id == -1 else volume_id, "psnr_grappa": psnr(grappa_recon, reference), "ssim_grappa": ssim(grappa_recon, reference), f"psnr_{method.lower()}": psnr(recon, reference), f"ssim_{method.lower()}": ssim(recon, reference), "time_grappa": dt1_grappa+dt2_grappa, f"time_{method.lower()}": dt})
     if i < 10:
-        torch.save(reference, f"savings_{coil}coil/volume_{i}_gt.pt")
-        torch.save(grappa_recon, f"savings_{coil}coil/volume_{i}_grappa.pt")
-        torch.save(recon, f"savings_{coil}coil/volume_{i}_{method.lower()}.pt")
+        torch.save(reference, f"{start_dir}_{coil}coil/volume_{i if volume_id == -1 else volume_id}_gt.pt")
+        torch.save(grappa_recon, f"{start_dir}_{coil}coil/volume_{i if volume_id == -1 else volume_id}_grappa.pt")
+        torch.save(recon, f"{start_dir}_{coil}coil/volume_{i if volume_id == -1 else volume_id}_{method.lower()}.pt")
     # 1) Break references to gpuNUFFT operators & physics (most important)
     # physics holds E_est internally, so deleting E_est alone is not enough.
 

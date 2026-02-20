@@ -133,7 +133,7 @@ class MRINUFFTPhysicsRI(dinv.physics.Physics):
         return x
     
     def A_dagger(self, y, x_init=None, max_iter=10):
-        return self.E.pinv_solver(y, max_iter=max_iter, x0=x_init)
+        return complex_to_ri(self.E.pinv_solver(y, max_iter=max_iter, x0=x_init))
 
 # Custom L2 data_fidelity preconditionned with the density compensation weights
 class L2_precon(DataFidelity):
