@@ -141,7 +141,6 @@ for i, volume in enumerate(volumes):
         else:
             x = torch.tensor(data_header['ref'], dtype=torch.complex64)
         traj, traj_params = read_trajectory(os.path.join(root, "traj", data_header['trajectory_name']), dwell_time=0.01/data_header['oversampling_factor'])
-        
         caipi_delta = 1
         y_np = add_phase_to_kspace_with_shifts(
             y_np, 
@@ -333,11 +332,19 @@ for i, volume in enumerate(volumes):
     if method.lower()=="ncpdnet":
         # NC-PDNet is trained with Density compensation
         yn, norm_fact = normalize_kspace(y_grappa, E_est.samples) #normalize wrt energy of central region
-        
         y = torch.from_numpy(yn).to(device)
-        E_est.density = weights
+        if grappa_recon_done:
+            smaps_new = {"name": "low_frequency", "kspace_data": y_grappa}
+        else:
+            from mrinufft.extras.smaps import _crop_or_pad
+            smaps_new = ifft(_crop_or_pad(cp.asarray(data_header['acs'], dtype=cp.complex64), (coils, *E_est.shape))).get()
+            smaps_new = smaps_new / (np.linalg.norm(smaps_new, axis=0) + 1e-10)
+        E_est.density = weights.cpu()
+        E_est.smaps = smaps_new
         E_est.squeeze_dims = False
-        ncpdnet.update_nufft_op(E_est)
+        ncpdnet.update_nufft_op(
+            get_operator()
+        )
         ncpdnet.to(device).eval()
         with torch.no_grad():
             t1_ncpdnet = time.time()
