@@ -339,12 +339,17 @@ for i, volume in enumerate(volumes):
             from mrinufft.extras.smaps import _crop_or_pad
             smaps_new = ifft(_crop_or_pad(cp.asarray(data_header['acs'], dtype=cp.complex64), (coils, *E_est.shape))).get()
             smaps_new = smaps_new / (np.linalg.norm(smaps_new, axis=0) + 1e-10)
-        E_est.density = weights.cpu()
-        E_est.smaps = smaps_new
-        E_est.squeeze_dims = False
         ncpdnet.update_nufft_op(
-            get_operator()
-        )
+            get_operator(backend)(
+                E_est.samples, 
+                E_est.shape, 
+                n_coils=coils, 
+                density=True,
+                smaps=smaps_new,
+                use_gpu_direct=True,
+                squeeze_dims=False, #preserve batch dim 
+                )
+            )
         ncpdnet.to(device).eval()
         with torch.no_grad():
             t1_ncpdnet = time.time()
