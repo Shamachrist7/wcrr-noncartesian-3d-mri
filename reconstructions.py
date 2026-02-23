@@ -8,7 +8,7 @@ from mrinufft.io import read_trajectory
 from mrinufft.io.utils import add_phase_to_kspace_with_shifts
 from mrinufft.extras.smaps import cartesian_espirit, coil_compression
 from baselines.grappa_reconstruction import do_grappa_and_append_data
-from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, sum_of_squares, _load_volumes, PSNR_MRI, L2_precon
+from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, sum_of_squares, _load_volumes, PSNR_MRI, L2_precon, normalize_kspace
 from reg_architectures import WCRR3D
 from deepinv.optim.prior import PnP, TVPrior, WaveletPrior
 from deepinv.optim import ADMM#, HQS
@@ -332,13 +332,17 @@ for i, volume in enumerate(volumes):
                 # NC-PDnet recon
     if method.lower()=="ncpdnet":
         # NC-PDNet is trained with Density compensation
-        E_est.density = True
+        yn, norm_fact = normalize_kspace(y_grappa, E_est.samples) #normalize wrt energy of central region
+        
+        y = torch.from_numpy(yn).to(device)
+        E_est.density = weights
+        E_est.squeeze_dims = False
         ncpdnet.update_nufft_op(E_est)
         ncpdnet.to(device).eval()
         with torch.no_grad():
             t1_ncpdnet = time.time()
             recon = ncpdnet(y.unsqueeze(0)).squeeze().detach().cpu() 
-            recon = torch.abs(recon)
+            recon = torch.abs(recon) * norm_fact
             dt = time.time() - t1_ncpdnet
     # Log all the metrics to weights and biases (psnr, ssim and time)
     wandb.log({"volume_idx": i if volume_id == -1 else volume_id, "psnr_grappa": psnr(grappa_recon, reference), "ssim_grappa": ssim(grappa_recon, reference), f"psnr_{method.lower()}": psnr(recon, reference), f"ssim_{method.lower()}": ssim(recon, reference), "time_grappa": dt1_grappa+dt2_grappa, f"time_{method.lower()}": dt})
