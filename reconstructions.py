@@ -219,7 +219,10 @@ for i, volume in enumerate(volumes):
     reference = torch.abs(ri_to_complex(x_gt_ri)).detach().cpu()
     # Grappa + DCp recon
     t2_grappa = time.time()
-    dcp_x_adj_ri = physics.A_adjoint(weights * y).detach().cpu()
+    if grappa_recon_done:
+        dcp_x_adj_ri = physics.A_adjoint(weights * y).detach().cpu()
+    else:
+        dcp_x_adj_ri = x_adj_ri
     dt2_grappa = time.time() - t2_grappa
     grappa_recon  = torch.abs(ri_to_complex(dcp_x_adj_ri))#.detach().cpu() # Its magnitude
     #del F_raw, E_est, density, weights, new_kspace_loc, y_grappa # To free gpunufft
@@ -241,7 +244,7 @@ for i, volume in enumerate(volumes):
         )
         with torch.no_grad():
             t1_tv = time.time()
-            x_rec_ri_tv = solver_tv(y, physics, x_gt=x_gt_ri, compute_metrics=False).detach().cpu()
+            x_rec_ri_tv = solver_tv(y, physics, init=(dcp_x_adj_ri, dcp_x_adj_ri), compute_metrics=False).detach().cpu()
             dt = time.time() - t1_tv
         recon  = torch.abs(ri_to_complex(x_rec_ri_tv))#.detach().cpu() # Its magnitude
     # l1-wavelet recon
@@ -261,7 +264,7 @@ for i, volume in enumerate(volumes):
         )
         with torch.no_grad():
             t1_wv = time.time()
-            x_rec_ri_wv = solver_wv(y, physics, x_gt=x_gt_ri, compute_metrics=False).detach().cpu()
+            x_rec_ri_wv = solver_wv(y, physics, x_gt=x_gt_ri, init=(dcp_x_adj_ri, dcp_x_adj_ri), compute_metrics=False).detach().cpu()
             dt = time.time() - t1_wv
         recon  = torch.abs(ri_to_complex(x_rec_ri_wv))#.detach().cpu() # Its magnitude
     # PnP-DRUNet recon
@@ -281,7 +284,7 @@ for i, volume in enumerate(volumes):
         )
         with torch.no_grad():
             t1_drunet = time.time()
-            x_rec_ri_drunet = solver_drunet(y, physics, x_gt=x_gt_ri, compute_metrics=False).detach().cpu()
+            x_rec_ri_drunet = solver_drunet(y, physics, x_gt=x_gt_ri, init=(dcp_x_adj_ri, dcp_x_adj_ri), compute_metrics=False).detach().cpu()
             dt = time.time() - t1_drunet
         recon  = torch.abs(ri_to_complex(x_rec_ri_drunet))#.detach().cpu() # Its magnitude
     # WCRR recon
@@ -299,7 +302,7 @@ for i, volume in enumerate(volumes):
                     max_iter,
                     thres_conv,
                     verbose=True,
-                    x_init=x_adj_ri, # Initialize as GRAPPA adj (without DCp)
+                    x_init=dcp_x_adj_ri, # Initialize as GRAPPA adj (without DCp)
                     x_gt=x_gt_ri,
                     return_stats=False,
                     ).detach().cpu()
@@ -320,7 +323,7 @@ for i, volume in enumerate(volumes):
                     max_iter,
                     thres_conv,
                     verbose=True,
-                    x_init=x_adj_ri, # Initialize as GRAPPA adj (without DCp)
+                    x_init=dcp_x_adj_ri, # Initialize as GRAPPA adj (without DCp)
                     x_gt=x_gt_ri,
                     return_stats=False,
                     ).detach().cpu()
@@ -328,17 +331,9 @@ for i, volume in enumerate(volumes):
         recon  = torch.abs(ri_to_complex(x_rec_ri_wcrr_no_rot))#.detach().cpu() # Its magnitude
                 # NC-PDnet recon
     if method.lower()=="ncpdnet":
-        ncpdnet.update_nufft_op(
-            get_operator(backend)(
-                E_est.samples, 
-                E_est.shape, 
-                n_coils=coils, 
-                density=True,
-                smaps={"name": "low_frequency", "kspace_data": y_grappa},
-                use_gpu_direct=True,
-                squeeze_dims=False, #preserve batch dim 
-                )
-            )
+        # NC-PDNet is trained with Density compensation
+        E_est.density = True
+        ncpdnet.update_nufft_op(E_est)
         ncpdnet.to(device).eval()
         with torch.no_grad():
             t1_ncpdnet = time.time()
