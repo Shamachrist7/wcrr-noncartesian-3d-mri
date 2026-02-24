@@ -8,7 +8,7 @@ from mrinufft.io import read_trajectory
 from mrinufft.io.utils import add_phase_to_kspace_with_shifts
 from mrinufft.extras.smaps import cartesian_espirit, coil_compression
 from baselines.grappa_reconstruction import do_grappa_and_append_data
-from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, sum_of_squares, _load_volumes, PSNR_MRI, L2_precon, normalize_kspace
+from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, _load_volumes, PSNR_MRI, L2_precon, normalize_kspace, get_acs_locations
 from reg_architectures import WCRR3D
 from deepinv.optim.prior import PnP, TVPrior, WaveletPrior
 from deepinv.optim import ADMM#, HQS
@@ -38,6 +38,7 @@ parser.add_argument("--simulation", type=int, default=1)
 parser.add_argument("--compress_coil", type=float, default=-1)
 parser.add_argument("--volume_id", type=int, default=-1)
 parser.add_argument("--traj", type=str, default="trajectory.bin")
+parser.add_argument("--add_acs", type=int, default=0)
 inp = parser.parse_args()
 coil = inp.coil # 12 or 32
 method = inp.method # "wcrr", "tv", "wv", "drunet", "wcrr_no_rot", "ncpdnet"
@@ -74,6 +75,9 @@ if inp.simulation:
     traj[traj > 0.5] = 0.5
     dim = traj_params["dimension"]
     kspace_loc = traj.reshape(-1, dim)
+    if inp.add_acs:
+        acs_loc = get_acs_locations(img_size=traj_params['img_size'])
+        kspace_loc = np.vstack([kspace_loc, acs_loc])
 else:
     # your 50 multi-coil volumes (12 or 32 coils)
     volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".dat")])

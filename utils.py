@@ -12,6 +12,11 @@ import nibabel as nib
 def fft(x):
     return np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(x, axes=(-3, -2, -1)), norm='ortho', axes=(-3, -2, -1)), axes=(-3, -2, -1))
 
+def get_acs_locations(acs_shape=(24, 24), img_size=(256,240,176)):
+    mask = np.zeros(img_size, dtype=bool)
+    mask[:, img_size[1]//2-acs_shape[0]//2:img_size[1]//2+acs_shape[0]//2, img_size[2]//2-acs_shape[1]//2:img_size[2]//2+acs_shape[1]//2] = True
+    loc = np.asarray(np.nonzero(mask)).T / img_size - 0.5
+    return loc
 
 def simulate_acs_data(x, acs_shape=(24, 24)):
     kspace = fft(x)
