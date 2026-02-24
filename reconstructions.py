@@ -67,7 +67,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 backend = "gpunufft"
 scaler = 1e-6 # data normalizer
 noise_level = 2e-3
-max_iter = 30 # Maximum number of iterations
+max_iter = 10 # Maximum number of iterations
 thres_conv = 1e-3 # convergence threshold
 
 if inp.simulation:
@@ -242,7 +242,7 @@ for i, volume in enumerate(volumes):
             g_first=False,
             data_fidelity=data_fidelity,
             stepsize=stepsize_tv,
-            lambda_reg=lmbd_tv,
+            lambda_reg=lmbd_tv / weights.mean().cpu(),
             max_iter=max_iter,
             crit_conv="residual",
             thres_conv=thres_conv,
@@ -262,7 +262,7 @@ for i, volume in enumerate(volumes):
             g_first=False,
             data_fidelity=data_fidelity,
             stepsize=stepsize_wv,
-            lambda_reg=lmbd_wv,
+            lambda_reg=lmbd_wv / weights.mean().cpu(),
             max_iter=max_iter,
             crit_conv="residual",
             thres_conv=thres_conv,
@@ -282,7 +282,7 @@ for i, volume in enumerate(volumes):
             data_fidelity=data_fidelity,
             g_first=False,
             stepsize=stepsize_drunet,
-            sigma_denoiser=sigma_drunet,
+            sigma_denoiser=sigma_drunet / weights.mean().cpu(),
             max_iter=max_iter,
             crit_conv="residual",
             thres_conv=thres_conv,
@@ -305,7 +305,7 @@ for i, volume in enumerate(volumes):
                     physics,
                     data_fidelity,
                     WCRR,
-                    lmbd_wcrr,
+                    lmbd_wcrr / weights.mean().cpu(),
                     1e-1, # Stepsize_nmAPG (can be anything)
                     max_iter,
                     thres_conv,
