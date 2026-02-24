@@ -188,7 +188,7 @@ for i, volume in enumerate(volumes):
     grappa_recon_done = True
     t1_grappa = time.time()
     try:
-        if inp.grecon_in_fourier:
+        if not inp.grecon_in_fourier:
             new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'], caipi_delta=caipi_delta)
         else:
             raise 
