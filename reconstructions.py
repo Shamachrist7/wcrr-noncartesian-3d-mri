@@ -228,7 +228,7 @@ for i, volume in enumerate(volumes):
     else:
         dcp_x_adj_ri = x_adj_ri
     dt2_grappa = time.time() - t2_grappa
-    grappa_recon  = torch.abs(ri_to_complex(dcp_x_adj_ri))#.detach().cpu() # Its magnitude
+    grappa_recon  = torch.abs(ri_to_complex(dcp_x_adj_ri.cpu()))#.detach().cpu() # Its magnitude
     #del F_raw, E_est, density, weights, new_kspace_loc, y_grappa # To free gpunufft
     #torch.cuda.empty_cache()
     # TV recon
