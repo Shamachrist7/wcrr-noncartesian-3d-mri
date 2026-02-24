@@ -39,6 +39,8 @@ parser.add_argument("--compress_coil", type=float, default=-1)
 parser.add_argument("--volume_id", type=int, default=-1)
 parser.add_argument("--traj", type=str, default="trajectory.bin")
 parser.add_argument("--add_acs", type=int, default=0)
+parser.add_argument("--grecon_in_fourier", type=int, default=1)
+
 inp = parser.parse_args()
 coil = inp.coil # 12 or 32
 method = inp.method # "wcrr", "tv", "wv", "drunet", "wcrr_no_rot", "ncpdnet"
@@ -186,11 +188,14 @@ for i, volume in enumerate(volumes):
     grappa_recon_done = True
     t1_grappa = time.time()
     try:
-        new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'], caipi_delta=caipi_delta)
+        if inp.grecon_in_fourier:
+            new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'], caipi_delta=caipi_delta)
+        else:
+            raise 
     except:
         grappa_recon_done = False
         print("GRAPPA reconstruction failed, trying SENSE")
-        new_kspace_loc, y_grappa = kspace_loc, y_np
+        new_kspace_loc, y_grappa = kspace_loc, (y_np.cpu().numpy() if inp.simulation else y_np)
     dt1_grappa = time.time() - t1_grappa
     # Build reconstruction operator that ESTIMATES smaps from y_grappa
     print(f"Operator definition, DCp weights and smaps estimation from measurement {i+1}!")
@@ -198,7 +203,6 @@ for i, volume in enumerate(volumes):
     density = get_density("pipe", new_kspace_loc, traj_params['img_size'], backend=backend, max_iter=10).astype(np.float32)
     weights = torch.from_numpy(density).to(device)
     data_fidelity = L2_precon(weights) # custom data fidelity
-    
     E_est = get_operator(backend)(
         new_kspace_loc,
         x.shape[1:],
