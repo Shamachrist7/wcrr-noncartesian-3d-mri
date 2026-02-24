@@ -37,6 +37,7 @@ parser.add_argument("--coil", type=int, default=12)
 parser.add_argument("--simulation", type=int, default=1)
 parser.add_argument("--compress_coil", type=float, default=-1)
 parser.add_argument("--volume_id", type=int, default=-1)
+parser.add_argument("--traj", type=str, default="trajectory.bin")
 inp = parser.parse_args()
 coil = inp.coil # 12 or 32
 method = inp.method # "wcrr", "tv", "wv", "drunet", "wcrr_no_rot", "ncpdnet"
@@ -67,7 +68,7 @@ thres_conv = 1e-3 # convergence threshold
 if inp.simulation:
     volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".h5")])[:15]
     # Load trajectory and get the k-space locations
-    traj, traj_params = read_trajectory("trajectory.bin", dwell_time=0.01/2)
+    traj, traj_params = read_trajectory(inp.traj, dwell_time=0.01/2)
     traj = traj.copy()
     traj[traj < -0.5] = -0.5
     traj[traj > 0.5] = 0.5
