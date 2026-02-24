@@ -202,7 +202,7 @@ for i, volume in enumerate(volumes):
     print("Start ... ")
     density = get_density("pipe", new_kspace_loc, traj_params['img_size'], backend=backend, max_iter=10).astype(np.float32)
     weights = torch.from_numpy(density).to(device)
-    data_fidelity = L2_precon(weights) # custom data fidelity
+    data_fidelity = L2_precon(torch.tensor(1.0, device=device)) # custom data fidelity
     E_est = get_operator(backend)(
         new_kspace_loc,
         x.shape[1:],
