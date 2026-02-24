@@ -14,6 +14,8 @@ from deepinv.optim.prior import PnP, TVPrior, WaveletPrior
 from deepinv.optim import ADMM#, HQS
 from baselines.drunet.drunet_base import DRUNet
 from baselines.ncpdnet import NCPDNET
+from mrinufft.extras.cartesian import fft, ifft
+import cupy as cp
 from evaluation.nmAPG3d_evaluation import reconstruct_nmAPG
 import deepinv as dinv
 from mrinufft import get_density
@@ -136,8 +138,6 @@ if method.lower()=="ncpdnet":
 
 for i, volume in enumerate(volumes):
     if not inp.simulation:
-        from mrinufft.extras.cartesian import fft, ifft
-        import cupy as cp
         y_np, data_header = _load_volumes(os.path.join(root, volume))
         if inp.compress_coil > 0:
             y_np, V = coil_compression(y_np, 0.9)
@@ -342,7 +342,7 @@ for i, volume in enumerate(volumes):
         # NC-PDNet is trained with Density compensation
         yn, norm_fact = normalize_kspace(y_grappa, E_est.samples) #normalize wrt energy of central region
         y = torch.from_numpy(yn).to(device)
-        if grappa_recon_done:
+        if grappa_recon_done or inp.simulation:
             smaps_new = {"name": "low_frequency", "kspace_data": y_grappa}
         else:
             from mrinufft.extras.smaps import _crop_or_pad
