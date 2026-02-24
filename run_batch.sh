@@ -19,7 +19,7 @@
 #SBATCH --output=%x_%A_%a.out # nom du fichier de sortie
 #SBATCH --error=%x_%A_%a.out  # nom du fichier d'erreur (ici commun avec la sortie)
 #SBATCH --wckey=submitit
-#SBATCH --array=1
+#SBATCH --array=1-5
 
 #SBATCH -L fs_store,fs_work
 
@@ -42,9 +42,9 @@ cc=(-1 0.95)
 folder=(long short)
 for I in 0
 do
-for method in ncpdnet 
+for method in ncpdnet wv drunet wcrr tv 
 do
-	for vid in 1
+	for vid in 0
 	do
 		ctr=$((ctr+1))
 		if [ $((ctr/group)) -eq $SLURM_ARRAY_TASK_ID ]
