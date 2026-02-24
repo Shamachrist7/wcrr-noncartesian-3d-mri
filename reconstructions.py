@@ -188,7 +188,7 @@ for i, volume in enumerate(volumes):
     grappa_recon_done = True
     t1_grappa = time.time()
     try:
-        if not inp.grecon_in_fourier:
+        if inp.grecon_in_fourier:
             new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'], caipi_delta=caipi_delta)
         else:
             raise 
@@ -228,7 +228,7 @@ for i, volume in enumerate(volumes):
     # Grappa + DCp recon
     t2_grappa = time.time()
     if grappa_recon_done:
-        dcp_x_adj_ri = physics.A_adjoint(weights * y).detach().cpu()
+        dcp_x_adj_ri = physics.A_adjoint(weights * y)
     else:
         dcp_x_adj_ri = x_adj_ri
     dt2_grappa = time.time() - t2_grappa
