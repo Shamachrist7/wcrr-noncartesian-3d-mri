@@ -1,17 +1,22 @@
 import numpy as np
 import h5py
 import torch
-from mrinufft import get_operator
 import deepinv as dinv
 from deepinv.optim.utils import conjugate_gradient
 from deepinv.loss.metric import PSNR, SSIM
 from deepinv.loss.metric.metric import Metric
 from deepinv.optim.data_fidelity import DataFidelity
-from mrinufft.io import read_arbgrad_rawdat, read_siemens_rawdat
-from mrinufft.extras.cartesian import ifft
+from mrinufft.io import read_arbgrad_rawdat
+import nibabel as nib
 
 def fft(x):
     return np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(x, axes=(-3, -2, -1)), norm='ortho', axes=(-3, -2, -1)), axes=(-3, -2, -1))
+
+def get_acs_locations(acs_shape=(24, 24), img_size=(256,240,176)):
+    mask = np.zeros(img_size, dtype=bool)
+    mask[:, img_size[1]//2-acs_shape[0]//2:img_size[1]//2+acs_shape[0]//2, img_size[2]//2-acs_shape[1]//2:img_size[2]//2+acs_shape[1]//2] = True
+    loc = np.asarray(np.nonzero(mask)).T / img_size - 0.5
+    return loc
 
 def simulate_acs_data(x, acs_shape=(24, 24)):
     kspace = fft(x)
@@ -35,9 +40,7 @@ def sum_of_squares(img_channels: np.ndarray) -> np.ndarray:
 def _load_volumes(filename, sr = 0.85 ):
     if filename.endswith('.dat'):
         kspace_data, data_header = read_arbgrad_rawdat(filename)
-        cart_ref, cart_header = read_siemens_rawdat(filename.replace('.dat', '_ref.dat'), reshape=False, return_twix=False, removeOS=True)
-        cart_recon = ifft(cart_ref)
-        data_header['ref'] = cart_recon
+        data_header['ref'] = nib.load(filename.replace('.dat', '_ref.nii.gz')).get_fdata(dtype=np.complex64)
         return (kspace_data.astype(np.complex64).reshape(kspace_data.shape[0], -1), data_header)
     with h5py.File(filename,'r') as h5obj :
         kspace_hybrid = h5obj['kspace'][:]
@@ -134,6 +137,9 @@ class MRINUFFTPhysicsRI(dinv.physics.Physics):
       
         x = conjugate_gradient(M, b, tol=tol)
         return x
+    
+    def A_dagger(self, y, x_init=None, max_iter=10):
+        return complex_to_ri(self.E.pinv_solver(y, max_iter=max_iter, x0=x_init))
 
 # Custom L2 data_fidelity preconditionned with the density compensation weights
 class L2_precon(DataFidelity):
@@ -183,3 +189,27 @@ class L2_precon(DataFidelity):
         :return: (:class:`torch.Tensor`) proximity operator :math:`\operatorname{prox}_{\gamma \datafidname}(x)`.
         """
         return physics.prox_l2_precon(x, y, gamma, self.weights, tol=tol)
+
+def normalize_kspace(kspace_data, kspace_loc, thresh=0.05):
+    """
+    Normalize k-space data by the average energy of the central region.
+
+    Parameters:
+    - kspace_loc: np.ndarray of shape (M, 3), the 3D k-space coordinates.
+    - kspace_data: np.ndarray of shape (N_coils, M), the complex k-space values.
+    - thresh: float, optional. Threshold radius for selecting the central region.
+    If 0.0, only the loc closest to the center is used.
+
+    Returns:
+    - kspace_data_norm: np.ndarray, normalized k-space data.
+    - normalization_fact: float, the normalization factor used.
+    """
+    dist_to_center = np.linalg.norm(kspace_loc, axis=-1)
+    central_reg = np.zeros_like(dist_to_center, dtype=bool)
+    if thresh==0.0:
+        central_reg[np.argmin(dist_to_center)] = True
+    else:
+        central_reg[dist_to_center <= thresh] = True
+    combined_energy = np.sqrt(np.sum(np.abs(kspace_data)**2, axis=0)) #SoS instead of Abs
+    normalization_fact = np.mean(combined_energy[central_reg])
+    return kspace_data/normalization_fact , normalization_fact

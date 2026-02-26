@@ -6,13 +6,16 @@ import matplotlib.pyplot as plt
 from mrinufft import get_operator
 from mrinufft.io import read_trajectory
 from mrinufft.io.utils import add_phase_to_kspace_with_shifts
-from mrinufft.extras.smaps import cartesian_espirit
+from mrinufft.extras.smaps import cartesian_espirit, coil_compression
 from baselines.grappa_reconstruction import do_grappa_and_append_data
-from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, sum_of_squares, _load_volumes, PSNR_MRI, L2_precon
+from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, _load_volumes, PSNR_MRI, L2_precon, normalize_kspace, get_acs_locations
 from reg_architectures import WCRR3D
 from deepinv.optim.prior import PnP, TVPrior, WaveletPrior
 from deepinv.optim import ADMM#, HQS
 from baselines.drunet.drunet_base import DRUNet
+from baselines.ncpdnet import NCPDNET
+from mrinufft.extras.cartesian import fft, ifft
+import cupy as cp
 from evaluation.nmAPG3d_evaluation import reconstruct_nmAPG
 import deepinv as dinv
 from mrinufft import get_density
@@ -31,11 +34,18 @@ torch.random.manual_seed(seed)  # make results deterministic
 parser = argparse.ArgumentParser(description="reconstructions")
 parser.add_argument("--root", type=str, default='../../../../../../../../LOCAL/mri_data')
 parser.add_argument("--method", type=str, default="WCRR")
+parser.add_argument("--folder", type=str, default="savings")
 parser.add_argument("--coil", type=int, default=12)
 parser.add_argument("--simulation", type=int, default=1)
+parser.add_argument("--compress_coil", type=float, default=-1)
+parser.add_argument("--volume_id", type=int, default=-1)
+parser.add_argument("--traj", type=str, default="trajectory.bin")
+parser.add_argument("--add_acs", type=int, default=0)
+parser.add_argument("--grecon_in_fourier", type=int, default=1)
+
 inp = parser.parse_args()
 coil = inp.coil # 12 or 32
-method = inp.method # "wcrr", "tv", "wv", "drunet", "wcrr_no_rot"
+method = inp.method # "wcrr", "tv", "wv", "drunet", "wcrr_no_rot", "ncpdnet"
 if inp.simulation:
     root = inp.root + f"/Test/{coil}coil"
 else:
@@ -49,28 +59,35 @@ wandb.init(
         "max_iter": 40,
         "noise_level": 2e-3,
         })
-os.makedirs(f"savings_{coil}coil", exist_ok=True)
+volume_id = inp.volume_id
+start_dir = inp.folder
+os.makedirs(f"{start_dir}_{coil}coil", exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 backend = "gpunufft"
 scaler = 1e-6 # data normalizer
 noise_level = 2e-3
-max_iter = 30 # Maximum number of iterations
+max_iter = 10 # Maximum number of iterations
 thres_conv = 1e-3 # convergence threshold
 
 if inp.simulation:
     volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".h5")])[:15]
     # Load trajectory and get the k-space locations
-    traj, traj_params = read_trajectory("trajectory.bin", dwell_time=0.01/2)
+    traj, traj_params = read_trajectory(inp.traj, dwell_time=0.01/2)
     traj = traj.copy()
     traj[traj < -0.5] = -0.5
     traj[traj > 0.5] = 0.5
     dim = traj_params["dimension"]
     kspace_loc = traj.reshape(-1, dim)
+    if inp.add_acs:
+        acs_loc = get_acs_locations(img_size=traj_params['img_size'])
+        kspace_loc = np.vstack([kspace_loc, acs_loc])
 else:
     # your 50 multi-coil volumes (12 or 32 coils)
-    volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".dat")])[:1]
+    volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".dat")])
 
+volumes = [volumes[inp.volume_id]] if inp.volume_id != -1 else volumes
+print(volumes)
 
 ##### PnP-DRUNet pior and hyperparameters #####
 if method.lower()=="drunet":
@@ -105,16 +122,32 @@ if method.lower()=="wcrr_no_rot":
     lmbd_wcrr_no_rot = 0.1
     sigma_wcrr_no_rot = 0.025
     sigma_wcrr_no_rot = torch.tensor([sigma_wcrr_no_rot], device=device)
+##### NC-PDNet #####
+if method.lower()=="ncpdnet":
+    class DummyNUFFT:
+        def op(self, x):
+            return x  
+        def adj_op(self, kspace, dcomp=None):
+            return torch.zeros_like(kspace)
+    dummy_nufft = DummyNUFFT()
+    ncpdnet = NCPDNET(nufft_op=dummy_nufft, image_net_type="ImageNetUnet", base_filters=16, num_stages=3, n_primal=2, n_iter=6, activation="silu", dim=3, complex_recon=True, normalize_input=True)
+    weights = torch.load("./weights/ncpdnet/ncpdnet_weights.pth", map_location=device, weights_only=True)
+    ncpdnet.load_state_dict(weights["state_dict"])
 
 # reconstructions
 
 for i, volume in enumerate(volumes):
     if not inp.simulation:
-        import nibabel as nib
         y_np, data_header = _load_volumes(os.path.join(root, volume))
-        y_np = y_np * 1e3 # Scale real data to same scale as simulations
-        x = torch.tensor(data_header['ref'], dtype=torch.complex64) 
-        traj, traj_params = read_trajectory(os.path.join(root, "..", "traj", data_header['trajectory_name']), dwell_time=0.01/data_header['oversampling_factor'])
+        if inp.compress_coil > 0:
+            y_np, V = coil_compression(y_np, 0.9)
+        y_np = y_np * 1e3 #/ 0.9 # Scale real data to same scale as simulations
+        C, *XYZ = data_header['ref'].shape
+        if inp.compress_coil > 0:
+            x = torch.tensor(ifft((cp.asarray(V) @ fft(cp.asarray(data_header['ref'])).reshape(C, -1)).reshape(V.shape[0], *XYZ)), dtype=torch.complex64).cpu()
+        else:
+            x = torch.tensor(data_header['ref'], dtype=torch.complex64)
+        traj, traj_params = read_trajectory(os.path.join(root, "traj", data_header['trajectory_name']), dwell_time=0.01/data_header['oversampling_factor'])
         caipi_delta = 1
         y_np = add_phase_to_kspace_with_shifts(
             y_np, 
@@ -130,7 +163,11 @@ for i, volume in enumerate(volumes):
         traj[traj > 0.5] = 0.5
         kspace_loc = traj.reshape(-1, traj_params["dimension"])
         # @Shama you can use ESPIRiT like this to get the smaps from the acs data in data_header['acs'], we started doing external ACS acquisitions for all current acquisitions
-        smaps = cartesian_espirit(cp.array(data_header['acs'], dtype=cp.complex64), traj_params['img_size'], decim=4, crop=0).get()
+        C, *XYZ = data_header['acs'].shape
+        if inp.compress_coil > 0:
+            smaps = cartesian_espirit(cp.array((V @ data_header['acs'].reshape(C, -1)).reshape(V.shape[0], *XYZ), dtype=cp.complex64), traj_params['img_size'], decim=4, crop=0).get()
+        else:
+            smaps = cartesian_espirit(cp.asarray(data_header['acs'], dtype=cp.complex64), traj_params['img_size'], decim=4, crop=0).get()
         # Clean up cupy memory
         cp._default_memory_pool.free_all_blocks()
         coils = y_np.shape[0]
@@ -148,19 +185,27 @@ for i, volume in enumerate(volumes):
         y_np = y_np + noise_level * torch.randn_like(y_np)
         print("Succesfully simulated!")
     # GRAPPA reconstruct the center of k-space, basis for our regularizers
+    grappa_recon_done = True
     t1_grappa = time.time()
-    new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'], caipi_delta=caipi_delta)
+    try:
+        if inp.grecon_in_fourier:
+            new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y_np, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'], caipi_delta=caipi_delta)
+        else:
+            raise 
+    except:
+        grappa_recon_done = False
+        print("GRAPPA reconstruction failed, trying SENSE")
+        new_kspace_loc, y_grappa = kspace_loc, (y_np.cpu().numpy() if inp.simulation else y_np)
     dt1_grappa = time.time() - t1_grappa
     # Build reconstruction operator that ESTIMATES smaps from y_grappa
     print(f"Operator definition, DCp weights and smaps estimation from measurement {i+1}!")
     print("Start ... ")
     density = get_density("pipe", new_kspace_loc, traj_params['img_size'], backend=backend, max_iter=10).astype(np.float32)
     weights = torch.from_numpy(density).to(device)
-    data_fidelity = L2_precon(weights) # custom data fidelity
-    
+    data_fidelity = L2_precon(torch.tensor(1.0, device=device)) # custom data fidelity
     E_est = get_operator(backend)(
         new_kspace_loc,
-        traj_params['img_size'],
+        x.shape[1:],
         n_coils=coils,
         smaps={"name": "low_frequency", "kspace_data": y_grappa} if inp.simulation else smaps,
         density= False,
@@ -171,16 +216,23 @@ for i, volume in enumerate(volumes):
     # Reference/Ground Truth (Adjoint coil combination)    
     smaps = torch.from_numpy(E_est.smaps)
     y = torch.from_numpy(y_grappa).to(device) # ACS reconstructed with grappa (In the k-space)
-    x_adj_ri = physics.A_adjoint(y) # Grappa adjoint without DCp (Initialization for all our iterative solvers)
+    if grappa_recon_done:
+        x_adj_ri = physics.A_adjoint(y) # Grappa adjoint without DCp (Initialization for all our iterative solvers)
+    else:
+         # If GRAPPA failed, we fall back to the pinv of the estimated NUFFT operator
+        x_adj_ri = physics.A_dagger(y).to(device)
     # Reference/Ground Truth (Adjoint coil combination)    smaps = torch.from_numpy(E_est.smaps)
     x_gt = torch.sum(torch.conj(smaps) * x, axis=0)
     x_gt_ri = complex_to_ri(x_gt).to(device) # In the RI space
     reference = torch.abs(ri_to_complex(x_gt_ri)).detach().cpu()
     # Grappa + DCp recon
     t2_grappa = time.time()
-    dcp_x_adj_ri = physics.A_adjoint(weights * y).detach().cpu()
+    if grappa_recon_done:
+        dcp_x_adj_ri = physics.A_adjoint(weights * y)
+    else:
+        dcp_x_adj_ri = x_adj_ri
     dt2_grappa = time.time() - t2_grappa
-    grappa_recon  = torch.abs(ri_to_complex(dcp_x_adj_ri))#.detach().cpu() # Its magnitude
+    grappa_recon  = torch.abs(ri_to_complex(dcp_x_adj_ri.cpu()))#.detach().cpu() # Its magnitude
     #del F_raw, E_est, density, weights, new_kspace_loc, y_grappa # To free gpunufft
     #torch.cuda.empty_cache()
     # TV recon
@@ -200,7 +252,7 @@ for i, volume in enumerate(volumes):
         )
         with torch.no_grad():
             t1_tv = time.time()
-            x_rec_ri_tv = solver_tv(y, physics, x_gt=x_gt_ri, compute_metrics=False).detach().cpu()
+            x_rec_ri_tv = solver_tv(y, physics, init=(dcp_x_adj_ri, dcp_x_adj_ri), compute_metrics=False).detach().cpu()
             dt = time.time() - t1_tv
         recon  = torch.abs(ri_to_complex(x_rec_ri_tv))#.detach().cpu() # Its magnitude
     # l1-wavelet recon
@@ -220,7 +272,7 @@ for i, volume in enumerate(volumes):
         )
         with torch.no_grad():
             t1_wv = time.time()
-            x_rec_ri_wv = solver_wv(y, physics, x_gt=x_gt_ri, compute_metrics=False).detach().cpu()
+            x_rec_ri_wv = solver_wv(y, physics, x_gt=x_gt_ri, init=(dcp_x_adj_ri, dcp_x_adj_ri), compute_metrics=False).detach().cpu()
             dt = time.time() - t1_wv
         recon  = torch.abs(ri_to_complex(x_rec_ri_wv))#.detach().cpu() # Its magnitude
     # PnP-DRUNet recon
@@ -240,7 +292,7 @@ for i, volume in enumerate(volumes):
         )
         with torch.no_grad():
             t1_drunet = time.time()
-            x_rec_ri_drunet = solver_drunet(y, physics, x_gt=x_gt_ri, compute_metrics=False).detach().cpu()
+            x_rec_ri_drunet = solver_drunet(y, physics, x_gt=x_gt_ri, init=(dcp_x_adj_ri, dcp_x_adj_ri), compute_metrics=False).detach().cpu()
             dt = time.time() - t1_drunet
         recon  = torch.abs(ri_to_complex(x_rec_ri_drunet))#.detach().cpu() # Its magnitude
     # WCRR recon
@@ -258,7 +310,7 @@ for i, volume in enumerate(volumes):
                     max_iter,
                     thres_conv,
                     verbose=True,
-                    x_init=x_adj_ri, # Initialize as GRAPPA adj (without DCp)
+                    x_init=dcp_x_adj_ri, # Initialize as GRAPPA adj (without DCp)
                     x_gt=x_gt_ri,
                     return_stats=False,
                     ).detach().cpu()
@@ -279,18 +331,46 @@ for i, volume in enumerate(volumes):
                     max_iter,
                     thres_conv,
                     verbose=True,
-                    x_init=x_adj_ri, # Initialize as GRAPPA adj (without DCp)
+                    x_init=dcp_x_adj_ri, # Initialize as GRAPPA adj (without DCp)
                     x_gt=x_gt_ri,
                     return_stats=False,
                     ).detach().cpu()
             dt = time.time() - t1_wcrr_no_rot                 
         recon  = torch.abs(ri_to_complex(x_rec_ri_wcrr_no_rot))#.detach().cpu() # Its magnitude
+                # NC-PDnet recon
+    if method.lower()=="ncpdnet":
+        # NC-PDNet is trained with Density compensation
+        yn, norm_fact = normalize_kspace(y_grappa, E_est.samples) #normalize wrt energy of central region
+        y = torch.from_numpy(yn).to(device)
+        if grappa_recon_done or inp.simulation:
+            smaps_new = {"name": "low_frequency", "kspace_data": y_grappa}
+        else:
+            from mrinufft.extras.smaps import _crop_or_pad
+            smaps_new = ifft(_crop_or_pad(cp.asarray(data_header['acs'], dtype=cp.complex64), (coils, *E_est.shape))).get()
+            smaps_new = smaps_new / (np.linalg.norm(smaps_new, axis=0) + 1e-10)
+        ncpdnet.update_nufft_op(
+            get_operator(backend)(
+                E_est.samples, 
+                E_est.shape, 
+                n_coils=coils, 
+                density=True,
+                smaps=smaps_new,
+                use_gpu_direct=True,
+                squeeze_dims=False, #preserve batch dim 
+                )
+            )
+        ncpdnet.to(device).eval()
+        with torch.no_grad():
+            t1_ncpdnet = time.time()
+            recon = ncpdnet(y.unsqueeze(0)).squeeze().detach().cpu() 
+            recon = torch.abs(recon) * norm_fact
+            dt = time.time() - t1_ncpdnet
     # Log all the metrics to weights and biases (psnr, ssim and time)
-    wandb.log({"volume_idx": i, "psnr_grappa": psnr(grappa_recon, reference), "ssim_grappa": ssim(grappa_recon, reference), f"psnr_{method.lower()}": psnr(recon, reference), f"ssim_{method.lower()}": ssim(recon, reference), "time_grappa": dt1_grappa+dt2_grappa, f"time_{method.lower()}": dt})
+    wandb.log({"volume_idx": i if volume_id == -1 else volume_id, "psnr_grappa": psnr(grappa_recon, reference), "ssim_grappa": ssim(grappa_recon, reference), f"psnr_{method.lower()}": psnr(recon, reference), f"ssim_{method.lower()}": ssim(recon, reference), "time_grappa": dt1_grappa+dt2_grappa, f"time_{method.lower()}": dt})
     if i < 10:
-        torch.save(reference, f"savings_{coil}coil/volume_{i}_gt.pt")
-        torch.save(grappa_recon, f"savings_{coil}coil/volume_{i}_grappa.pt")
-        torch.save(recon, f"savings_{coil}coil/volume_{i}_{method.lower()}.pt")
+        torch.save(reference, f"{start_dir}_{coil}coil/volume_{i if volume_id == -1 else volume_id}_gt.pt")
+        torch.save(grappa_recon, f"{start_dir}_{coil}coil/volume_{i if volume_id == -1 else volume_id}_grappa.pt")
+        torch.save(recon, f"{start_dir}_{coil}coil/volume_{i if volume_id == -1 else volume_id}_{method.lower()}.pt")
     # 1) Break references to gpuNUFFT operators & physics (most important)
     # physics holds E_est internally, so deleting E_est alone is not enough.
 
