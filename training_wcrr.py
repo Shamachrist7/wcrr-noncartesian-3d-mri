@@ -27,7 +27,7 @@ torch.random.manual_seed(0)  # make results deterministic
 
 problem = "Denoising"
 hypergradient_computation = "IFT"  # IFT or JFB
-regularizer_name = inp.regularizer_name  # WCRR, CRR
+regularizer_name = inp.regularizer_name  # WCRR, WCRR_3by3by3_64, WCRR_5by5by5_32, WCRR_no_rotations
 load_pretrain = False  # load pretrained weights given that they exist
 load_parameter_fitting = (
     False  # load pretrained weights and learned regularization and scaling parameter
@@ -38,22 +38,7 @@ sigma_min = 0.01
 sigma_max = 0.1
 sigma_val = 0.05
 
-if regularizer_name == "CRR":
-    pretrain_epochs = 1000
-    pretrain_lr = 1e-2
-    fitting_lr = 0.1
-    epochs = 100
-    lr = 1e-2
-    adabelief = True
-    jacobian_regularization = True
-    jacobian_regularization_parameter = 1e-6
-    regularizer = WCRR3D(
-        weak_convexity=0.0,
-        nb_channels=[2, 4, 8, 32],
-        filter_sizes=[3, 3, 3],
-        rotations=True,
-    ).to(device)
-elif regularizer_name == "WCRR":
+if regularizer_name == "WCRR": #3by3by3_32
     pretrain_epochs = 1000
     pretrain_lr = 1e-2
     fitting_lr = 0.1
@@ -68,7 +53,7 @@ elif regularizer_name == "WCRR":
         filter_sizes=[3, 3, 3],
         rotations=True,
     ).to(device)
-elif regularizer_name == "WCRR_no_rotations":
+elif regularizer_name == "WCRR_no_rotations": #non-rotation-invariant version
     pretrain_epochs = 1000
     pretrain_lr = 1e-2
     fitting_lr = 0.1
@@ -83,10 +68,38 @@ elif regularizer_name == "WCRR_no_rotations":
         filter_sizes=[3, 3, 3],
         rotations=False,
     ).to(device)
+elif regularizer_name == "WCRR_3by3by3_64":
+    pretrain_epochs = 3000
+    pretrain_lr = 1e-2
+    fitting_lr = 0.1
+    adabelief = True
+    epochs = 100
+    lr = 1e-2
+    jacobian_regularization = True
+    jacobian_regularization_parameter = 1e-6
+    regularizer = WCRR3D(
+        weak_convexity=1.0,
+        nb_channels=[2, 4, 8, 64],
+        filter_sizes=[3, 3, 3],
+        rotations=True,
+    ).to(device)
+elif regularizer_name == "WCRR_5by5by5_32":
+    pretrain_epochs = 3000
+    pretrain_lr = 1e-2
+    fitting_lr = 0.1
+    adabelief = True
+    epochs = 100
+    lr = 1e-2
+    jacobian_regularization = True
+    jacobian_regularization_parameter = 1e-6
+    regularizer = WCRR3D(
+        weak_convexity=1.0,
+        nb_channels=[2, 4, 8, 32],
+        filter_sizes=[5, 5, 5],
+        rotations=True,
+    ).to(device)
 
-#regularizer = ParameterLearningWrapper(regularizer, device=device)
 lmbd = 1.0
-
 
 if not os.path.isdir("weights"):
     os.mkdir("weights")

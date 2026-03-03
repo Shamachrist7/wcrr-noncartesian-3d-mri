@@ -1,0 +1,45 @@
+['e13991s3_P01536.7.h5', 'e13992s4_P08704.7.h5', 'e13993s4_P16896.7.h5', 'e14078s3_P02048.7.h5', 'e14079s3_P09216.7.h5', 'e14080s3_P18944.7.h5', 'e14081s3_P25600.7.h5', 'e14091s3_P67584.7.h5', 'e14155s3_P69120.7.h5', 'e14553s5_P44544.7.h5', 'e14618s3_P51200.7.h5', 'e14654s3_P55296.7.h5', 'e14655s3_P61952.7.h5', 'e14736s3_P55296.7.h5', 'e14742s3_P32768.7.h5']
+Simulation of the undersampled measurement 1!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 1!
+Start ...
+100%|█████████████████████████████████████████████████████████████████████████| 10/10 [00:04<00:00,  2.08it/s]
+Succesfull!
+100%|█████████████████████████████████████████████████████████████████████████| 77/77 [00:03<00:00, 24.17it/s]
+  0%|                                                                                 | 0/200 [00:00<?, ?it/s]
+Traceback (most recent call last):
+  File "/home/mathe/lvhome20/users/personal/wacg/wcrr-noncartesian-3d-mri/reconstructions.py", line 302, in <module>
+    x_rec_ri_wv = solver_wv(y.to(device), physics, init=init.to(device), compute_metrics=False).detach().cpu()
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/HOME1/users/personal/wacg/miniconda3/envs/PyTorch/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/HOME1/users/personal/wacg/miniconda3/envs/PyTorch/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/HOME1/users/personal/wacg/miniconda3/envs/PyTorch/lib/python3.12/site-packages/deepinv/optim/optimizers.py", line 836, in forward
+    X, metrics = self.fixed_point(
+                 ^^^^^^^^^^^^^^^^^
+  File "/HOME1/users/personal/wacg/miniconda3/envs/PyTorch/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/HOME1/users/personal/wacg/miniconda3/envs/PyTorch/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/HOME1/users/personal/wacg/miniconda3/envs/PyTorch/lib/python3.12/site-packages/deepinv/optim/fixed_point.py", line 278, in forward
+    X = self.single_iteration(X, it, *args, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/HOME1/users/personal/wacg/miniconda3/envs/PyTorch/lib/python3.12/site-packages/deepinv/optim/fixed_point.py", line 319, in single_iteration
+    X = self.iterator(
+        ^^^^^^^^^^^^^^
+  File "/HOME1/users/personal/wacg/miniconda3/envs/PyTorch/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/HOME1/users/personal/wacg/miniconda3/envs/PyTorch/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/HOME1/users/personal/wacg/miniconda3/envs/PyTorch/lib/python3.12/site-packages/deepinv/optim/optim_iterators/pgd.py", line 79, in forward
+    x_prev, z_prev = X["est"][0], X["est"][1]
+                                  ~~~~~~~~^^^
+IndexError: tuple index out of range

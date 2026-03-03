@@ -53,7 +53,6 @@ def bilevel_training(
     logger=None,
     dynamic_range_psnr=False,
     savestr=None,
-    gabor=False,
     upper_loss=lambda x, y: torch.sum(((x - y) ** 2).view(x.shape[0], -1), -1),
 ):
     assert validation_epochs <= epochs, (
@@ -153,7 +152,7 @@ def bilevel_training(
         )
         norm_sq = torch.sum(hvp ** 2) / x.size(0)
         print(f"Jac_Loss: {norm_sq}")
-        return torch.clip(norm_sq, min=200, max=None)
+        return norm_sq
 
     if adabelief:
         momentum_optim = (0.5, 0.9) if momentum_optim is None else momentum_optim
@@ -204,10 +203,12 @@ def bilevel_training(
             x = x.to(device).to(torch.float32)
             #sigma = noise_generator.step(x.shape[0])["sigma"] # drawing uniformly a random noise level for each image of in the batch separetly
             
+            assert x.shape[0] % K == 0, f"Batch size must be a multiple of the number of spline knots, in this case {K}"
+            multiple = int(x.shape[0]/K)
             knots= torch.linspace(sigma_min, sigma_max, K)
             perm = torch.randperm(K)       # a random permutation of 0..K-1
-            idx = perm[:x.shape[0]]         # first x.shape[0] distinct random indices
-            sigma = knots[idx].to(device)                   # the randomly picked sub-tensor (unordered)
+            idx = perm.repeat(multiple) # Random distinct indices of the knots/main noise levels, unordered and repeated to match the batch size
+            sigma = knots[idx].to(device)
             
             y = physics.noise_model(physics.A(x), sigma=sigma)
             x_noisy = physics.A_dagger(y)
@@ -296,11 +297,6 @@ def bilevel_training(
         mean_train_psnr = train_psnr_epoch / len(train_dataloader)
         loss_train.append(mean_train_loss)
         psnr_train.append(mean_train_psnr)
-        
-        # To keep track of the evolution of the filters for the Gabor regularizer
-        if gabor:
-            filters = regularizer.compute_filters().detach().cpu()
-            filter_snapshots.append(filters)
 
         print_str = f"[Epoch {epoch+1}] Train Loss: {mean_train_loss:.2E}, PSNR: {mean_train_psnr:.2f}"
         print(print_str)
@@ -361,15 +357,6 @@ def bilevel_training(
                 else:
                     torch.save(regularizer.state_dict(),f"weights/bilevel_Denoising/{wandb_setup["regularizer_name"]}_bilevel_IFT_ckpt_{epoch + 1}.pt")
 
-                # ---- Save best regularizer based on validation PSNR ----
-                if mean_val_psnr > best_val_psnr:
-                    best_val_psnr = mean_val_psnr
-                    best_regularizer_state = copy.deepcopy(regularizer.state_dict())
-
-    # Load best regularizer
-    regularizer.load_state_dict(best_regularizer_state)
     wandb.finish()
 
-    if gabor:
-        return regularizer, loss_train, loss_val, psnr_train, psnr_val, filter_snapshots
     return regularizer, loss_train, loss_val, psnr_train, psnr_val

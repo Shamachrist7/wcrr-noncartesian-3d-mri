@@ -7,8 +7,7 @@ if parent_dir not in sys.path:
 
 import torch
 import numpy as np
-import wandb
-import matplotlib.pyplot as plt
+import cupy as cp
 from mrinufft import get_operator
 from mrinufft.io import read_trajectory
 from baselines.grappa_reconstruction import do_grappa_and_append_data
@@ -16,10 +15,9 @@ from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, s
 from reg_architectures import WCRR3D
 from evaluation.nmAPG3d_evaluation import reconstruct_nmAPG
 import deepinv as dinv
-from mrinufft import get_density
+from mrinufft.extras.smaps import get_smaps
 import gc
 import os
-import time
 import argparse
 import warnings
 #os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -36,12 +34,12 @@ inp = parser.parse_args()
 root = inp.root + "/Val/_images"
 regularizer_name = inp.regularizer_name # "WCRR" or "WCRR_no_rot"
 
-#data_fidelity = L2()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-backend = "gpunufft"
+backend = "cufinufft"
 scaler = 1e-6 
 coils = 12 # number of coils in each volume
 noise_level = 2e-3
+data_fidelity = L2_precon(weights=torch.tensor(1.0))
 
 # Load trajectory and get the k-space locations
 traj, traj_params = read_trajectory("trajectory.bin", dwell_time=0.01/2)
@@ -72,8 +70,8 @@ regularizer.eval()
 
 # Parameters of the nmAPG solver
 step_size = 1e-1
-max_iter = 100
-tol = 1e-3  # tolerance for the relative error (stopping criterion)
+max_iter = 20
+tol = 1e-2  # tolerance for the relative error (stopping criterion)
 
 # Calgary volumes are under the format [D,H,W,coils], and we convert to [coils,H,W,D] so that NUFFT works
 x_0 = torch.from_numpy(scaler * np.moveaxis(np.load(os.path.join(root, volumes[0])),-1, 0)) #[coils,H,W,D] and complex dtype
@@ -83,100 +81,134 @@ x_3 = torch.from_numpy(scaler * np.moveaxis(np.load(os.path.join(root, volumes[3
 x_4 = torch.from_numpy(scaler * np.moveaxis(np.load(os.path.join(root, volumes[4])),-1, 0))
 
 # Forward NUFFT that takes coil images -> k-space & simulate the corruption
-F_raw = get_operator(backend)(kspace_loc, x_0.shape[1:], n_coils=coils, density=True)
-y_np_0 = F_raw.op(x_0) # simulates the undersampled kspace volume y. The zero-filled recon comes from it
-y_np_0 = y_np_0 + noise_level * torch.randn_like(y_np_0)
-y_np_1 = F_raw.op(x_1)
-y_np_1 = y_np_1 + noise_level * torch.randn_like(y_np_1)
-y_np_2 = F_raw.op(x_2)
-y_np_2 = y_np_2 + noise_level * torch.randn_like(y_np_2)
-y_np_3 = F_raw.op(x_3)
-y_np_3 = y_np_3 + noise_level * torch.randn_like(y_np_3)
-y_np_4 = F_raw.op(x_4)
-y_np_4 = y_np_4 + noise_level * torch.randn_like(y_np_4)
+F_raw = get_operator(backend)(kspace_loc, x_0.shape[1:], n_coils=coils, density=True, squeeze_dims=True)
+y_0 = F_raw.op(x_0) # simulates the undersampled kspace volume y. The zero-filled recon comes from it
+y_0 = y_0 + noise_level * torch.randn_like(y_0)
+y_1 = F_raw.op(x_1)
+y_1 = y_1 + noise_level * torch.randn_like(y_1)
+y_2 = F_raw.op(x_2)
+y_2 = y_2 + noise_level * torch.randn_like(y_2)
+y_3 = F_raw.op(x_3)
+y_3 = y_3 + noise_level * torch.randn_like(y_3)
+y_4 = F_raw.op(x_4)
+y_4 = y_4 + noise_level * torch.randn_like(y_4)
 
 # GRAPPA reconstruct the center of k-space and append the data, basis for our regularizers
-new_kspace_loc_0, y_grappa_0 = do_grappa_and_append_data(kspace_loc, y_np_0, traj_params, af=(2, 2))
-new_kspace_loc_1, y_grappa_1 = do_grappa_and_append_data(kspace_loc, y_np_1, traj_params, af=(2, 2))
-new_kspace_loc_2, y_grappa_2 = do_grappa_and_append_data(kspace_loc, y_np_2, traj_params, af=(2, 2))
-new_kspace_loc_3, y_grappa_3 = do_grappa_and_append_data(kspace_loc, y_np_3, traj_params, af=(2, 2))
-new_kspace_loc_4, y_grappa_4 = do_grappa_and_append_data(kspace_loc, y_np_4, traj_params, af=(2, 2))
+new_kspace_loc_0, y_grappa_0 = do_grappa_and_append_data(kspace_loc, y_0, traj_params, af=(2, 2))
+new_kspace_loc_1, y_grappa_1 = do_grappa_and_append_data(kspace_loc, y_1, traj_params, af=(2, 2))
+new_kspace_loc_2, y_grappa_2 = do_grappa_and_append_data(kspace_loc, y_2, traj_params, af=(2, 2))
+new_kspace_loc_3, y_grappa_3 = do_grappa_and_append_data(kspace_loc, y_3, traj_params, af=(2, 2))
+new_kspace_loc_4, y_grappa_4 = do_grappa_and_append_data(kspace_loc, y_4, traj_params, af=(2, 2))
 
-# Build reconstruction operator that ESTIMATES smaps from y_grappa (For each volume)
-density_0 = get_density("pipe", new_kspace_loc_0, x_0.shape[1:], backend=backend, num_iterations=10).astype(np.float32)
-weights_0 = torch.from_numpy(density_0).to(device)
-data_fidelity_0 = L2_precon(weights_0) # custom data fidelity
+# Build reconstruction operator that ESTIMATES smaps from y (zero-filled) (For each volume)
+Smaps_0 = get_smaps("espirit")(
+    kspace_loc,
+    x_0.shape[1:],
+    kspace_data=cp.asarray(y_0),
+    density=F_raw.density,
+    backend=backend,
+    decim=4,
+)
 E_est_0 = get_operator(backend)(
-    new_kspace_loc_0,
+    kspace_loc,
     x_0.shape[1:],
     n_coils=coils,
-    smaps={"name": "low_frequency", "kspace_data": y_grappa_0},
-    density=False,
-    use_gpu_direct=True,
+    smaps=Smaps_0.get(),
+    squeeze_dims=True,
 )
 physics_0 = MRINUFFTPhysicsRI(E_est_0)
-y_0 = torch.from_numpy(y_grappa_0).to(device) # ACS reconstructed with grappa (In the k-space)
-x_adj_ri_0 = physics_0.A_adjoint(y_0)
+y_grappa_0 = torch.from_numpy(y_grappa_0).to(device) # ACS reconstructed with grappa (In the k-space)
+### Grappa + DCp recon
+nufft_grappa_0 = get_operator(backend)(new_kspace_loc_0, x_0.shape[1:], n_coils=coils, smaps=Smaps_0.get(), density=True, squeeze_dims=True)
+dcp_grappa_ri_0 = complex_to_ri(nufft_grappa_0.adj_op(y_grappa_0))
 
-density_1 = get_density("pipe", new_kspace_loc_1, x_1.shape[1:], backend=backend, num_iterations=10).astype(np.float32)
-weights_1 = torch.from_numpy(density_1).to(device)
-data_fidelity_1 = L2_precon(weights_1) # custom data fidelity
+
+Smaps_1 = get_smaps("espirit")(
+    kspace_loc,
+    x_0.shape[1:],
+    kspace_data=cp.asarray(y_1),
+    density=F_raw.density,
+    backend=backend,
+    decim=4,
+)
 E_est_1 = get_operator(backend)(
-    new_kspace_loc_1,
-    x_1.shape[1:],
+    kspace_loc,
+    x_0.shape[1:],
     n_coils=coils,
-    smaps={"name": "low_frequency", "kspace_data": y_grappa_1},
-    density=False,
-    use_gpu_direct=True,
+    smaps=Smaps_1.get(),
+    squeeze_dims=True,
 )
 physics_1 = MRINUFFTPhysicsRI(E_est_1)
-y_1 = torch.from_numpy(y_grappa_1).to(device) # ACS reconstructed with grappa (In the k-space)
-x_adj_ri_1 = physics_1.A_adjoint(y_1)
+y_grappa_1 = torch.from_numpy(y_grappa_1).to(device) # ACS reconstructed with grappa (In the k-space)
+### Grappa + DCp recon
+nufft_grappa_1 = get_operator(backend)(new_kspace_loc_1, x_0.shape[1:], n_coils=coils, smaps=Smaps_1.get(), density=True, squeeze_dims=True)
+dcp_grappa_ri_1 = complex_to_ri(nufft_grappa_1.adj_op(y_grappa_1))
 
-density_2 = get_density("pipe", new_kspace_loc_2, x_2.shape[1:], backend=backend, num_iterations=10).astype(np.float32)
-weights_2 = torch.from_numpy(density_2).to(device)
-data_fidelity_2 = L2_precon(weights_2) # custom data fidelity
+
+Smaps_2 = get_smaps("espirit")(
+    kspace_loc,
+    x_0.shape[1:],
+    kspace_data=cp.asarray(y_2),
+    density=F_raw.density,
+    backend=backend,
+    decim=4,
+)
 E_est_2 = get_operator(backend)(
-    new_kspace_loc_2,
-    x_2.shape[1:],
+    kspace_loc,
+    x_0.shape[1:],
     n_coils=coils,
-    smaps={"name": "low_frequency", "kspace_data": y_grappa_2},
-    density=False,
-    use_gpu_direct=True,
+    smaps=Smaps_2.get(),
+    squeeze_dims=True,
 )
 physics_2 = MRINUFFTPhysicsRI(E_est_2)
-y_2 = torch.from_numpy(y_grappa_2).to(device) # ACS reconstructed with grappa (In the k-space)
-x_adj_ri_2 = physics_2.A_adjoint(y_2)
+y_grappa_2 = torch.from_numpy(y_grappa_2).to(device) # ACS reconstructed with grappa (In the k-space)
+### Grappa + DCp recon
+nufft_grappa_2 = get_operator(backend)(new_kspace_loc_2, x_0.shape[1:], n_coils=coils, smaps=Smaps_2.get(), density=True, squeeze_dims=True)
+dcp_grappa_ri_2 = complex_to_ri(nufft_grappa_2.adj_op(y_grappa_2))
 
-density_3 = get_density("pipe", new_kspace_loc_3, x_3.shape[1:], backend=backend, num_iterations=10).astype(np.float32)
-weights_3 = torch.from_numpy(density_3).to(device)
-data_fidelity_3 = L2_precon(weights_3) # custom data fidelity
+
+Smaps_3 = get_smaps("espirit")(
+    kspace_loc,
+    x_0.shape[1:],
+    kspace_data=cp.asarray(y_3),
+    density=F_raw.density,
+    backend=backend,
+    decim=4,
+)
 E_est_3 = get_operator(backend)(
-    new_kspace_loc_3,
-    x_3.shape[1:],
+    kspace_loc,
+    x_0.shape[1:],
     n_coils=coils,
-    smaps={"name": "low_frequency", "kspace_data": y_grappa_3},
-    density=False,
-    use_gpu_direct=True,
+    smaps=Smaps_3.get(),
+    squeeze_dims=True,
 )
 physics_3 = MRINUFFTPhysicsRI(E_est_3)
-y_3 = torch.from_numpy(y_grappa_3).to(device) # ACS reconstructed with grappa (In the k-space)
-x_adj_ri_3 = physics_3.A_adjoint(y_3)
+y_grappa_3 = torch.from_numpy(y_grappa_3).to(device) # ACS reconstructed with grappa (In the k-space)
+### Grappa + DCp recon
+nufft_grappa_3 = get_operator(backend)(new_kspace_loc_3, x_0.shape[1:], n_coils=coils, smaps=Smaps_3.get(), density=True, squeeze_dims=True)
+dcp_grappa_ri_3 = complex_to_ri(nufft_grappa_3.adj_op(y_grappa_3))
 
-density_4 = get_density("pipe", new_kspace_loc_4, x_4.shape[1:], backend=backend, num_iterations=10).astype(np.float32)
-weights_4 = torch.from_numpy(density_4).to(device)
-data_fidelity_4 = L2_precon(weights_4) # custom data fidelity
+
+Smaps_4 = get_smaps("espirit")(
+    kspace_loc,
+    x_0.shape[1:],
+    kspace_data=cp.asarray(y_4),
+    density=F_raw.density,
+    backend=backend,
+    decim=4,
+)
 E_est_4 = get_operator(backend)(
-    new_kspace_loc_4,
-    x_4.shape[1:],
+    kspace_loc,
+    x_0.shape[1:],
     n_coils=coils,
-    smaps={"name": "low_frequency", "kspace_data": y_grappa_4},
-    density=False,
-    use_gpu_direct=True,
+    smaps=Smaps_4.get(),
+    squeeze_dims=True,
 )
 physics_4 = MRINUFFTPhysicsRI(E_est_4)
-y_4 = torch.from_numpy(y_grappa_4).to(device) # ACS reconstructed with grappa (In the k-space)
-x_adj_ri_4 = physics_4.A_adjoint(y_4)
+y_grappa_4 = torch.from_numpy(y_grappa_4).to(device) # ACS reconstructed with grappa (In the k-space)
+### Grappa + DCp recon
+nufft_grappa_4 = get_operator(backend)(new_kspace_loc_4, x_0.shape[1:], n_coils=coils, smaps=Smaps_4.get(), density=True, squeeze_dims=True)
+dcp_grappa_ri_4 = complex_to_ri(nufft_grappa_4.adj_op(y_grappa_4))
 
 # Reference/Ground Truth (Adjoint coil combination)
 smaps_0 = torch.from_numpy(E_est_0.smaps)
@@ -204,22 +236,26 @@ x_gt_4 = torch.sum(torch.conj(smaps_4) * x_4, axis=0)
 x_gt_ri_4 = complex_to_ri(x_gt_4)
 reference_4 = torch.abs(x_gt_4) # Magnitude
 
-del density_0, weights_0, density_1, weights_1, density_2, weights_2, density_3, weights_3, density_4, weights_4
+del F_raw, Smaps_0, Smaps_1, Smaps_2, Smaps_3, Smaps_4, nufft_grappa_0, nufft_grappa_1, nufft_grappa_2, nufft_grappa_3, nufft_grappa_4, E_est_0, E_est_1, E_est_2, E_est_3, E_est_4, new_kspace_loc_0, new_kspace_loc_1, new_kspace_loc_2, new_kspace_loc_3, new_kspace_loc_4, y_grappa_0, y_grappa_1, y_grappa_2, y_grappa_3, y_grappa_4, smaps_0, smaps_1, smaps_2, smaps_3, smaps_4, x_gt_0, x_gt_1, x_gt_2, x_gt_3, x_gt_4, x_gt_ri_0, x_gt_ri_1, x_gt_ri_2, x_gt_ri_3, x_gt_ri_4, x_0, x_1, x_2, x_3, x_4
+gc.collect()
 torch.cuda.empty_cache()
+torch.cuda.ipc_collect()
+cp.get_default_memory_pool().free_all_blocks()
+cp.get_default_pinned_memory_pool().free_all_blocks()
 
 # Optimization
 k = 0
 best_psnr = -float("inf")
-for lmbd in [6.5e-2, 7e-2, 7.5e-2, 8e-2, 8.5e-2, 9e-2, 9.5e-2, 0.1, 0.105]:
-    for sigma in [0.04, 0.035, 0.03, 0.025, 0.02]:
+for lmbd in [1e-3, 5e-3, 1e-2, 5e-2, 1e-1]:
+    for sigma in [0.08, 0.07, 0.06, 0.05, 0.04]:
         sigma = torch.tensor([sigma], device=device)
 
         with torch.no_grad():
             avg_psnr = 0.0
-            for y, physics, x_adj_ri, reference, data_fidelity in [(y_0, physics_0, x_adj_ri_0, reference_0, data_fidelity_0), (y_1, physics_1, x_adj_ri_1, reference_1, data_fidelity_1), (y_2, physics_2, x_adj_ri_2, reference_2, data_fidelity_2), (y_3, physics_3, x_adj_ri_3, reference_3, data_fidelity_3), (y_4, physics_4, x_adj_ri_4, reference_4, data_fidelity_4)]:
+            for y, physics, dcp_grappa_ri, reference in [(y_0, physics_0, dcp_grappa_ri_0, reference_0), (y_1, physics_1, dcp_grappa_ri_1, reference_1), (y_2, physics_2, dcp_grappa_ri_2, reference_2), (y_3, physics_3, dcp_grappa_ri_3, reference_3), (y_4, physics_4, dcp_grappa_ri_4, reference_4)]:
                 x_rec_ri = reconstruct_nmAPG(
        	                    sigma,
-    	                    y,
+    	                    y.to(device),
     	                    physics,
     	                    data_fidelity,
     	                    regularizer,
@@ -228,7 +264,7 @@ for lmbd in [6.5e-2, 7e-2, 7.5e-2, 8e-2, 8.5e-2, 9e-2, 9.5e-2, 0.1, 0.105]:
     	                    max_iter,
     	                    tol,
     	                    verbose=True,
-    	                    x_init=x_adj_ri,
+    	                    x_init=dcp_grappa_ri.to(device),
     	                    return_stats=False).detach().cpu()
                 recon  = torch.abs(ri_to_complex(x_rec_ri)) # Magnitude of the reconstruction
                 avg_psnr += psnr(recon, reference)

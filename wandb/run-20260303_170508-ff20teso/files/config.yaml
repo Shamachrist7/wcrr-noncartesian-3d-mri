@@ -1,0 +1,71 @@
+_wandb:
+    value:
+        cli_version: 0.25.0
+        e:
+            7hno5tzw17s8wmzszavvxet1za4kkx4q:
+                args:
+                    - --coil
+                    - "32"
+                codePath: reconstructions.py
+                codePathLocal: reconstructions.py
+                cpu_count: 14
+                cpu_count_logical: 14
+                cudaVersion: "13.0"
+                disk:
+                    /:
+                        total: "104030265344"
+                        used: "50300936192"
+                email: shamachrist7@gmail.com
+                executable: /HOME1/users/personal/wacg/miniconda3/envs/PyTorch/bin/python
+                git:
+                    commit: 84c2fe9a128b11338fbb498d58d3763fd13e0068
+                    remote: git@github.com:Shamachrist7/wcrr-noncartesian-3d-mri.git
+                gpu: NVIDIA GeForce RTX 4070 Ti SUPER
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 8448
+                      memoryTotal: "17171480576"
+                      name: NVIDIA GeForce RTX 4070 Ti SUPER
+                      uuid: GPU-3357ec14-1ad5-845e-a3c3-f9da61252390
+                host: phoenix
+                memory:
+                    total: "41061867520"
+                os: Linux-6.14.0-35-generic-x86_64-with-glibc2.39
+                program: /home/mathe/lvhome20/users/personal/wacg/wcrr-noncartesian-3d-mri/reconstructions.py
+                python: CPython 3.12.2
+                root: /home/mathe/lvhome20/users/personal/wacg/wcrr-noncartesian-3d-mri
+                startedAt: "2026-03-03T16:05:08.487897Z"
+                writerId: 7hno5tzw17s8wmzszavvxet1za4kkx4q
+        m: []
+        python_version: 3.12.2
+        t:
+            "1":
+                - 1
+                - 2
+                - 3
+                - 5
+                - 35
+                - 41
+                - 49
+                - 53
+            "2":
+                - 1
+                - 2
+                - 3
+                - 5
+                - 35
+                - 41
+                - 49
+                - 53
+            "3":
+                - 13
+                - 16
+            "4": 3.12.2
+            "5": 0.25.0
+            "12": 0.25.0
+            "13": linux-x86_64
+max_iter:
+    value: 200
+noise_level:
+    value: 0.002

@@ -1,0 +1,152 @@
+['e13991s3_P01536.7.h5', 'e13992s4_P08704.7.h5', 'e13993s4_P16896.7.h5', 'e14078s3_P02048.7.h5', 'e14079s3_P09216.7.h5', 'e14080s3_P18944.7.h5', 'e14081s3_P25600.7.h5', 'e14091s3_P67584.7.h5', 'e14155s3_P69120.7.h5', 'e14553s5_P44544.7.h5', 'e14618s3_P51200.7.h5', 'e14654s3_P55296.7.h5', 'e14655s3_P61952.7.h5', 'e14736s3_P55296.7.h5', 'e14742s3_P32768.7.h5']
+Simulation of the undersampled measurement 1!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 1!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.51it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 71.34it/s]
+  5%|█▉                                     | 10/200 [00:55<17:38,  5.57s/it]
+Converged in iter 10, tol 0.009511
+Simulation of the undersampled measurement 2!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 2!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.53it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 72.89it/s]
+  5%|█▉                                     | 10/200 [00:55<17:42,  5.59s/it]
+Converged in iter 10, tol 0.008817
+Simulation of the undersampled measurement 3!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 3!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.53it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 73.56it/s]
+  5%|█▉                                     | 10/200 [00:55<17:42,  5.59s/it]
+Converged in iter 10, tol 0.009248
+Simulation of the undersampled measurement 4!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 4!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.53it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 68.84it/s]
+  5%|█▉                                     | 10/200 [00:55<17:42,  5.59s/it]
+Converged in iter 10, tol 0.009062
+Simulation of the undersampled measurement 5!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 5!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.54it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 68.20it/s]
+  4%|█▊                                      | 9/200 [00:50<17:57,  5.64s/it]
+Converged in iter 9, tol 0.008891
+Simulation of the undersampled measurement 6!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 6!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.53it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 71.89it/s]
+  4%|█▊                                      | 9/200 [00:50<17:57,  5.64s/it]
+Converged in iter 9, tol 0.008886
+Simulation of the undersampled measurement 7!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 7!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.52it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 71.47it/s]
+  4%|█▊                                      | 9/200 [00:50<17:55,  5.63s/it]
+Converged in iter 9, tol 0.009068
+Simulation of the undersampled measurement 8!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 8!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.53it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 71.19it/s]
+  6%|██▏                                    | 11/200 [01:01<17:28,  5.55s/it]
+Converged in iter 11, tol 0.008264
+Simulation of the undersampled measurement 9!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 9!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.53it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 70.90it/s]
+  4%|█▊                                      | 9/200 [00:50<17:56,  5.64s/it]
+Converged in iter 9, tol 0.009732
+Simulation of the undersampled measurement 10!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 10!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.53it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 70.22it/s]
+  4%|█▊                                      | 9/200 [00:50<17:57,  5.64s/it]
+Converged in iter 9, tol 0.009543
+Simulation of the undersampled measurement 11!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 11!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.53it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 72.20it/s]
+  5%|█▉                                     | 10/200 [00:55<17:40,  5.58s/it]
+Converged in iter 10, tol 0.009308
+Simulation of the undersampled measurement 12!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 12!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.52it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 70.26it/s]
+  4%|█▊                                      | 9/200 [00:50<17:58,  5.64s/it]
+Converged in iter 9, tol 0.009530
+Simulation of the undersampled measurement 13!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 13!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.53it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 69.07it/s]
+  4%|█▊                                      | 9/200 [00:50<17:57,  5.64s/it]
+Converged in iter 9, tol 0.009645
+Simulation of the undersampled measurement 14!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 14!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.54it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 68.57it/s]
+  5%|█▉                                     | 10/200 [00:55<17:40,  5.58s/it]
+Converged in iter 10, tol 0.009739
+Simulation of the undersampled measurement 15!
+Start ...
+Succesfully simulated!
+Operator definition and smaps estimation from measurement 15!
+Start ...
+100%|████████████████████████████████████████| 10/10 [00:03<00:00,  2.53it/s]
+Succesfull!
+100%|████████████████████████████████████████| 77/77 [00:01<00:00, 72.27it/s]
+  4%|█▊                                      | 9/200 [00:50<17:58,  5.64s/it]
+Converged in iter 9, tol 0.009140
+Reconstructions finished!

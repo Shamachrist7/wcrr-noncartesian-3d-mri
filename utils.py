@@ -1,7 +1,7 @@
 import numpy as np
 import h5py
 import torch
-import deepinv as dinv
+from deepinv.physics import LinearPhysics
 from deepinv.optim.utils import conjugate_gradient
 from deepinv.loss.metric import PSNR, SSIM
 from deepinv.loss.metric.metric import Metric
@@ -101,7 +101,7 @@ class PSNR_MRI(Metric):
 # -----------------------------------
 # Physics wrapper for DeepInv in RI variable space
 # -----------------------------------
-class MRINUFFTPhysicsRI(dinv.physics.Physics):
+class MRINUFFTPhysicsRI(LinearPhysics):
     """
     DeepInv Physics operating on x in RI space [1,2,H,W,D].
     Internally converts to complex for mrinufft, and back.
@@ -156,7 +156,7 @@ class L2_precon(DataFidelity):
 
     """
 
-    def __init__(self, weights):
+    def __init__(self, weights=torch.tensor(1.0)):
         super().__init__()
         self.weights = weights # density compensation weights
 
@@ -213,3 +213,29 @@ def normalize_kspace(kspace_data, kspace_loc, thresh=0.05):
     combined_energy = np.sqrt(np.sum(np.abs(kspace_data)**2, axis=0)) #SoS instead of Abs
     normalization_fact = np.mean(combined_energy[central_reg])
     return kspace_data/normalization_fact , normalization_fact
+
+
+
+# -----------------------------------
+# Computes the DPIR parameters (denoiser noise level and stepsize per iteration) based on the noise level of the input image and the regularization parameter lambda.
+# -----------------------------------
+def get_DPIR_params(num_iter=1, sigma_init=0.01, lmbd=1e-3, device='cpu'):
+    r"""
+    Default parameters for the DPIR Plug-and-Play algorithm.
+
+    :param float noise_level_img: Noise level of the input image.
+    :param str, torch.device device: Device to run the algorithm, either "cpu" or "cuda". Default is "cpu".
+    :return: tuple(list with denoiser noise level per iteration, list with stepsize per iteration, iterations).
+    """
+    sigma_min=0.01
+    sigma_denoiser = torch.logspace(
+        torch.log10(torch.tensor(sigma_init, dtype=torch.float32)),
+        torch.log10(torch.tensor(sigma_min, dtype=torch.float32)),
+        steps=num_iter,
+        dtype=torch.float32,
+        device=device,
+    )
+
+    stepsize = (1/lmbd) * (sigma_denoiser / sigma_min) ** 2
+
+    return sigma_denoiser, stepsize, num_iter

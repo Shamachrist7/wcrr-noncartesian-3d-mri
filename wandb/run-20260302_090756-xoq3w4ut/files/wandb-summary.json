@@ -1,0 +1,1 @@
+{"_timestamp":1.772447180540051e+09,"_wandb":{"runtime":8299},"_step":3029,"Val PSNR":37.127723693847656,"Val Loss":1319.09814453125,"_runtime":8299,"Train Loss":1522.6510009765625,"Epoch":3000,"Gradient norm":160.22500515878653,"Train PSNR":37.00500361124674}
