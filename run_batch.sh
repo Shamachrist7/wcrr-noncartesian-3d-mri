@@ -19,7 +19,7 @@
 #SBATCH --output=%x_%A_%a.out # nom du fichier de sortie
 #SBATCH --error=%x_%A_%a.out  # nom du fichier d'erreur (ici commun avec la sortie)
 #SBATCH --wckey=submitit
-#SBATCH --array=1-5
+#SBATCH --array=1-10
 
 #SBATCH -L fs_store,fs_work
 
@@ -37,19 +37,18 @@ cit=0
 OUTDIR=$SCRATCH/Benchmark
 
 mkdir -p $OUTDIR
-group=1
-cc=(-1 0.95)
-folder=(long short)
-for I in 0
+group=2
+folder=(recon_wg recon_wog)
+for I in 0 1
 do
 for method in ncpdnet wv drunet wcrr tv 
 do
-	for vid in 0
+	for vid in 0 1
 	do
 		ctr=$((ctr+1))
 		if [ $((ctr/group)) -eq $SLURM_ARRAY_TASK_ID ]
 		then
-	    	    python reconstructions.py --root $SCRATCH/DATA/Benchmark_Networks --simulation 0 --method $method --volume_id $vid  --compress_coil ${cc[$I]} --folder ${folder[$I]}
+	    	    python reconstructions.py --root $SCRATCH/DATA/Benchmark_Networks --simulation 0 --method $method --volume_id $vid  --compress_coil ${cc[$I]} --folder ${folder[$I]} --grecon_in_fourier $I &
 		fi
 	done
 done

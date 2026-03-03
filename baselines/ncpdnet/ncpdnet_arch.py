@@ -99,12 +99,15 @@ class CrossDomainNet(nn.Module):
         image_buffer = self.image_net[i_domain // 2](image_buffer)
         return image_buffer
 
-    def forward(self, original_kspace):
+    def forward(self, original_kspace, x0=None):
         # Load input data
         original_kspace = original_kspace.contiguous()
         #print(f"in_k:{original_kspace.shape}")
         # Compute x0
-        image = self.backward_operator(original_kspace)
+        if x0 is None:
+            image = self.backward_operator(original_kspace)
+        else:
+            image = x0.to(torch.complex64)    
         #print(f"in_i:{image.shape}")
         if self.normalize_input:
             norm_fact = self._normalize_img(image)
@@ -212,7 +215,7 @@ class NCPDNET(nn.Module):
         if hasattr(self.ncpdnet, "nufft_op"):
             self.ncpdnet.nufft_op = new_nufft_op
 
-    def forward(self, original_kspace):
-        return self.ncpdnet(original_kspace)
+    def forward(self, original_kspace, x0=None):
+        return self.ncpdnet(original_kspace, x0)
     
     
