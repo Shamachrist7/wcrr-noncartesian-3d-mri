@@ -27,8 +27,7 @@ import warnings
 #os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 warnings.filterwarnings("ignore")
 
-seed = 0 # 0, 1, 2, 3, 4 (run each of them  to be able to compute the confidence interval)
-torch.random.manual_seed(seed)  # make results deterministic
+torch.random.manual_seed(0)  # make results deterministic
 
 parser = argparse.ArgumentParser(description="reconstructions")
 parser.add_argument("--root", type=str, default='../../../../../../../../LOCAL/mri_data')
@@ -38,9 +37,10 @@ parser.add_argument("--coil", type=int, default=12)
 parser.add_argument("--simulation", type=int, default=1)
 parser.add_argument("--compress_coil", type=float, default=-1)
 parser.add_argument("--volume_id", type=int, default=-1)
-parser.add_argument("--traj", type=str, default="gs.bin") # "trajectory.bin" or "caipi.bin"
-parser.add_argument("--smaps_on_gpu", type=bool, default=False) # Whether to compute the smaps on GPU (with cupy) or CPU (with numpy). If True, make sure to have enough GPU memory, especially for the 32-coil data. If False, it will be much slower but can be run on CPU if GPU memory is not sufficient.
-#parser.add_argument("--grecon_in_fourier", type=int, default=1) # will be probably removed in the final version
+parser.add_argument("--traj", type=str, default="gs.bin") # "gs.bin" or "caipi.bin"
+parser.add_argument("--smaps_on_gpu", type=bool, default=True) # Whether to compute the smaps on GPU (with cupy) or CPU (with numpy). If True, make sure to have enough GPU memory, especially for the 32-coil data. If False, it will be much slower but can be run on CPU if GPU memory is not sufficient.
+parser.add_argument("--smaps_precomputation", type=bool, default=False) # Whether to only precompute the smaps and save them, without doing the reconstructions. This can be useful to avoid recomputing the smaps every time you want to test a new method or hyperparameters. If True, make sure to set the correct root directory and run this once before running the reconstructions with smaps_precomputation=False and loading the smaps from disk in utils.py.
+parser.add_argument("--precomputed_smaps_available", type=bool, default=True) # Whether the precomputed smaps are already available on disk. If True, make sure to set the correct smaps_dir in utils.py to load them.
 parser.add_argument("--init", type=str, default="grappa") # "grappa" or "sense"
 
 inp = parser.parse_args()
@@ -50,15 +50,20 @@ if inp.simulation:
     root = inp.root + f"/Test/{coil}coil"
 else:
     root = inp.root
-
-wandb.init(
-        # Set the project where this run will be logged
-        project=f"{coil}coil_results_{inp.traj[:-4]}", # project name
-        name=f"{method.lower()}_recons",
-        config={
-        "max_iter": 200,
-        "noise_level": 2e-3,
-        })
+    
+if inp.smaps_precomputation or inp.precomputed_smaps_available:
+    smaps_dir = root + f"/first_15_smaps/{coil}coil_{inp.traj[:-4]}/"
+    os.makedirs(smaps_dir, exist_ok=True)
+ 
+if not inp.smaps_precomputation:    
+    wandb.init(
+            # Set the project where this run will be logged
+            project=f"{coil}coil_results_{inp.traj[:-4]}", # project name
+            name=f"{method.lower()}_recons",
+            config={
+            "max_iter": 200,
+            "noise_level": 2e-3,
+            })
 volume_id = inp.volume_id
 start_dir = inp.folder
 os.makedirs(f"{start_dir}_{coil}coil", exist_ok=True)
@@ -108,7 +113,7 @@ if method.lower()=="drunet":
 if method.lower()=="wv":
     prior_wv = WaveletPrior(level=4, wv="db4", p=1, wvdim=3)
     lmbd = 3e-3
-    tol = 1e-3
+    tol = 5e-3 #1e-3
 ##### TV prior and hyperparameters #####
 if method.lower()=="tv":
     lmbd = 0.3
@@ -188,39 +193,49 @@ for i, volume in enumerate(volumes):
         x = torch.from_numpy(scaler * np.moveaxis(_load_volumes(os.path.join(root, volume)),-1, 0)) #[coils,H,W,D] and complex dtype
         coils = x.shape[0] # number of coils in the volume
         # Forward NUFFT that takes coil images -> k-space
-        print(f"Simulation of the undersampled measurement {i+1}!")
+        print(f"Simulation of the undersampled measurement {i}!")
         print("Start ... ")
         F_raw = get_operator(backend)(kspace_loc, x.shape[1:], n_coils=coils, density=True, squeeze_dims=True) # NUFFT operator that simulates the measurement (takes coil images as input, outputs k-space)
         y = F_raw.op(x) # simulates the undersampled kspace volume y. The zero-filled recon comes from it
         y = y + noise_level * torch.randn_like(y)
         print("Succesfully simulated!")
-        print(f"Operator definition and smaps estimation from measurement {i+1}!")
-        print("Start ... ")
-        if inp.smaps_on_gpu==True:
-            smaps = get_smaps("espirit")(
-                kspace_loc,
-                x.shape[1:],
-                kspace_data=cp.asarray(y),
-                density=F_raw.density,
-                backend=backend,
-                decim=4,
-            ).get()
+        
+        if not inp.precomputed_smaps_available:
+            print(f"smaps estimation from measurement {i}!")
+            print("Start ... ")
+            if inp.smaps_on_gpu==True:
+                smaps = get_smaps("espirit")(
+                    kspace_loc,
+                    x.shape[1:],
+                    kspace_data=cp.asarray(y),
+                    density=F_raw.density,
+                    backend=backend,
+                    decim=4,
+                ).get()
+            else:
+                smaps = get_smaps("espirit")(
+                    kspace_loc,
+                    x.shape[1:],
+                    kspace_data=y.numpy(),
+                    density=F_raw.density,
+                    backend=backend,
+                    decim=4,
+                )
+            # Clean up cupy memory
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+            cp._default_memory_pool.free_all_blocks()
+            cp.get_default_memory_pool().free_all_blocks()
+            cp.get_default_pinned_memory_pool().free_all_blocks()
+            
+            if inp.smaps_precomputation:
+                np.save(smaps_dir + f"volume_{i if volume_id == -1 else volume_id}_smaps.npy", smaps)
+                continue # Skip the reconstructions if we are only precomputing the smaps
         else:
-            smaps = get_smaps("espirit")(
-                kspace_loc,
-                x.shape[1:],
-                kspace_data=y.numpy(),
-                density=F_raw.density,
-                backend=backend,
-                decim=4,
-            )
-        # Clean up cupy memory
-        gc.collect()
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
-        cp._default_memory_pool.free_all_blocks()
-        cp.get_default_memory_pool().free_all_blocks()
-        cp.get_default_pinned_memory_pool().free_all_blocks()
+            print(f"Loading precomputed smaps for volume {i}!")
+            print("Start ... ")
+            smaps = np.load(smaps_dir + f"volume_{i if volume_id == -1 else volume_id}_smaps.npy")
     
     # Operator definition
     E_est = get_operator(backend)(
@@ -380,9 +395,9 @@ for i, volume in enumerate(volumes):
     # Log all the metrics to weights and biases (psnr, ssim and time)
     wandb.log({"volume_idx": i if volume_id == -1 else volume_id, f"psnr_{inp.init.lower()}": psnr(init_recon, reference), f"ssim_{inp.init.lower()}": ssim(init_recon, reference), f"psnr_{method.lower()}": psnr(recon, reference), f"ssim_{method.lower()}": ssim(recon, reference), f"time_{inp.init.lower()}": dt_init, f"time_{method.lower()}": dt})
     if i < 10:
-        torch.save(reference, f"{start_dir}_{coil}coil/volume_{i if volume_id == -1 else volume_id}_gt.pt")
-        torch.save(init_recon, f"{start_dir}_{coil}coil/volume_{i if volume_id == -1 else volume_id}_{inp.init.lower()}.pt")
-        torch.save(recon, f"{start_dir}_{coil}coil/volume_{i if volume_id == -1 else volume_id}_{method.lower()}.pt")
+        torch.save(reference, f"{start_dir}_{coil}coil_{inp.traj[:-4]}/volume_{i if volume_id == -1 else volume_id}_gt.pt")
+        torch.save(init_recon, f"{start_dir}_{coil}coil_{inp.traj[:-4]}/volume_{i if volume_id == -1 else volume_id}_{inp.init.lower()}.pt")
+        torch.save(recon, f"{start_dir}_{coil}coil_{inp.traj[:-4]}/volume_{i if volume_id == -1 else volume_id}_{method.lower()}.pt")
     # 1) Break references to gpuNUFFT operators & physics (most important)
     # physics holds E_est internally, so deleting E_est alone is not enough.
 
