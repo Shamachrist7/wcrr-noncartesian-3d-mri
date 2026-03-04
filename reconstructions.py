@@ -369,27 +369,13 @@ for i, volume in enumerate(volumes):
         # NC-PDNet is trained with Density compensation
         yn, norm_fact = normalize_kspace(y_grappa, E_est.samples) #normalize wrt energy of central region
         y = torch.from_numpy(yn).to(device)
-        if grappa_recon_done or inp.simulation:
-            smaps_new = {"name": "low_frequency", "kspace_data": y_grappa}
-        else:
-            from mrinufft.extras.smaps import _crop_or_pad
-            smaps_new = ifft(_crop_or_pad(cp.asarray(data_header['acs'], dtype=cp.complex64), (coils, *E_est.shape))).get()
-            smaps_new = smaps_new / (np.linalg.norm(smaps_new, axis=0) + 1e-10)
-        ncpdnet.update_nufft_op(
-            get_operator(backend)(
-                E_est.samples, 
-                E_est.shape, 
-                n_coils=coils, 
-                density=True,
-                smaps=smaps_new,
-                use_gpu_direct=True,
-                squeeze_dims=False, #preserve batch dim 
-                )
-            )
+        x = ri_to_complex(x_adj_ri).to(device)[None, None] / norm_fact
+        E_est.squeeze_dims = False # preserve batch dim for ncpdnet
+        ncpdnet.update_nufft_op(E_est)
         ncpdnet.to(device).eval()
         with torch.no_grad():
             t1_ncpdnet = time.time()
-            recon = ncpdnet(y.unsqueeze(0)).squeeze().detach().cpu() 
+            recon = ncpdnet(y.unsqueeze(0), x).squeeze().detach().cpu() 
             recon = torch.abs(recon) * norm_fact
             dt = time.time() - t1_ncpdnet
     # Log all the metrics to weights and biases (psnr, ssim and time)
