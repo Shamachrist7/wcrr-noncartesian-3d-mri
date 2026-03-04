@@ -69,7 +69,7 @@ start_dir = inp.folder
 os.makedirs(f"{start_dir}_{coil}coil_{inp.traj[:-4]}", exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-backend = "cufinufft"
+backend = "gpunufft"
 scaler = 1e-6 # data normalizer
 noise_level = 2e-3
 max_iter = 200 # Maximum number of iterations
@@ -154,7 +154,7 @@ for i, volume in enumerate(volumes):
     if not inp.simulation:
         y, data_header = _load_volumes(os.path.join(root, volume))
         if inp.compress_coil > 0:
-            y, V = coil_compression(y, 0.9)
+            y, V = coil_compression(y, inp.compress_coil)
         y = y  * 1e3 #/ 0.9 # Scale real data to same scale as simulations
         C, *XYZ = data_header['ref'].shape
         if inp.compress_coil > 0:
@@ -275,7 +275,7 @@ for i, volume in enumerate(volumes):
     reference = torch.abs(ri_to_complex(x_gt_ri))
     
     # Clean memory before proper reconstructions
-    del F_raw, E_est,
+    del F_raw
     gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.ipc_collect()
@@ -367,15 +367,15 @@ for i, volume in enumerate(volumes):
     # NC-PDnet recon
     if method.lower()=="ncpdnet":
         # NC-PDNet is trained with Density compensation
-        yn, norm_fact = normalize_kspace(y_grappa, E_est.samples) #normalize wrt energy of central region
-        y = torch.from_numpy(yn).to(device)
-        x = ri_to_complex(x_adj_ri).to(device)[None, None] / norm_fact
+        yn, norm_fact = normalize_kspace(y.cpu().numpy(), E_est.samples) #normalize wrt energy of central region
+        y = torch.from_numpy(yn).to(device).to(torch.complex64)
+        x_init = ri_to_complex(init).to(device)[None, None] / norm_fact
         E_est.squeeze_dims = False # preserve batch dim for ncpdnet
         ncpdnet.update_nufft_op(E_est)
         ncpdnet.to(device).eval()
         with torch.no_grad():
             t1_ncpdnet = time.time()
-            recon = ncpdnet(y.unsqueeze(0), x).squeeze().detach().cpu() 
+            recon = ncpdnet(y.unsqueeze(0), x_init).squeeze().detach().cpu() 
             recon = torch.abs(recon) * norm_fact
             dt = time.time() - t1_ncpdnet
     # Log all the metrics to weights and biases (psnr, ssim and time)

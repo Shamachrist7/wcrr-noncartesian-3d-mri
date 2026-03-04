@@ -34,24 +34,18 @@ module load cuda/13
 source $WORK/Environments/bench/bin/activate
 export WANDB_MODE=offline
 cit=0
-OUTDIR=$SCRATCH/Benchmark
-
-mkdir -p $OUTDIR
-group=2
-folder=(recon_wg recon_wog)
-for I in 0 1
-do
-for method in ncpdnet wv drunet wcrr tv 
+group=1
+folder=recon_wocc 
+for method in ncpdnet wv tv wcrr drunet
 do
 	for vid in 0 1
 	do
 		ctr=$((ctr+1))
 		if [ $((ctr/group)) -eq $SLURM_ARRAY_TASK_ID ]
 		then
-	    	    python reconstructions.py --root $SCRATCH/DATA/Benchmark_Networks --simulation 0 --method $method --volume_id $vid  --compress_coil ${cc[$I]} --folder ${folder[$I]} --grecon_in_fourier $I &
+			python reconstruction_after_tune.py --root $SCRATCH/DATA/Benchmark_Networks --simulation 0 --method $method --volume_id $vid  --compress_coil -1 --folder $folder --init sense 
 		fi
 	done
-done
 done
 wait
 
