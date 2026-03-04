@@ -66,7 +66,7 @@ if not inp.smaps_precomputation:
             })
 volume_id = inp.volume_id
 start_dir = inp.folder
-os.makedirs(f"{start_dir}_{coil}coil", exist_ok=True)
+os.makedirs(f"{start_dir}_{coil}coil_{inp.traj[:-4]}", exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 backend = "cufinufft"
