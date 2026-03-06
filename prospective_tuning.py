@@ -61,7 +61,7 @@ if not inp.smaps_precomputation:
             project=f"{coil}coil_results_{inp.traj[:-4]}", # project name
             name=f"{method.lower()}_recons",
             config={
-            "max_iter": 200,
+            "max_iter": 10,
             "noise_level": 2e-3,
             })
 volume_id = inp.volume_id
@@ -72,7 +72,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 backend = "gpunufft"
 scaler = 1e-6 # data normalizer
 noise_level = 2e-3
-max_iter = 200 # Maximum number of iterations
+max_iter = 10 # Maximum number of iterations
 data_fidelity = L2_precon(weights=torch.tensor(1.0))
 sigmas = [0] # Dummy for all, except WCRR
 
@@ -97,8 +97,8 @@ print(volumes)
 
 ##### PnP-DRUNet pior and hyperparameters #####
 if method.lower()=="drunet":
-    lmbds = [2e-3, 2e-3]
-    sigmas = [1e-2, 2e-2]
+    lmbds = [2e-3]
+    sigmas = [1e-2, 2e-2, 4e-2, 8e-2, 1e-1]
     drunet = DRUNet(in_channels=2, out_channels=2, dim=3, pretrained=None).to(device)
     drunet.load_state_dict(torch.load("weights/drunet/drunet_3d_complex_denoise.pth", map_location=device, weights_only=True))
     prior_drunet = PnP(denoiser=drunet.eval())
@@ -106,20 +106,20 @@ if method.lower()=="drunet":
 ##### l1-wavelet prior and hyperparameters #####
 if method.lower()=="wv":
     prior_wv = WaveletPrior(level=4, wv="db4", p=1, wvdim=3)
-    lmbds = [2e-3, 2e-3]
-    tol = 5e-3 #1e-3
+    lmbds = [1e-3, 2e-3, 3e-3, 5e-3, 7e-3]
+    tol = 1e-3 #1e-3
 ##### TV prior and hyperparameters #####
 if method.lower()=="tv":
-    lmbds = [0.7, 1]
+    lmbds = [0.7, 1, 1.5, 2, 5]
     tol = 1e-3
 ##### (Rotation invariant) WCRR prior and hyperparameters #####
 if method.lower()=="wcrr":
     WCRR = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=True).to(device)
     WCRR.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_bilevel_IFT_ckpt_100.pt", weights_only=True, map_location=device))
     WCRR.eval()
-    lmbds = [8.5e-3, 1e-2]
-    sigmas = [0.07, 0.06]
-    tol = 1e-2
+    lmbds = [2e-3, 4e-3, 6e-3, 8e-3, 1e-2]
+    sigmas = [0.04, 0.05, 0.06, 0.07, 0.08]
+    tol = 1e-3
 ##### (Not rotation invariant) WCRR_no_rot prior and hyperparameters #####
 if method.lower()=="wcrr_no_rot":
     WCRR_no_rot = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=False).to(device)
@@ -308,7 +308,7 @@ for i, volume in enumerate(volumes):
                 recon  = torch.abs(ri_to_complex(x_rec_ri_wv)) # Its magnitude
             # PnP-DRUNet recon
             if method.lower()=="drunet":
-                sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=1, sigma_init=sigma, sigma_min=0.01, lmbd=lmbd, device=device)
+                sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=max_iter, sigma_init=sigma, sigma_min=0.01, lmbd=lmbd, device=device)
                 solver_drunet = HQS(
                     prior=prior_drunet,
                     data_fidelity=data_fidelity,

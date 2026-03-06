@@ -19,7 +19,7 @@
 #SBATCH --output=%x_%A_%a.out # nom du fichier de sortie
 #SBATCH --error=%x_%A_%a.out  # nom du fichier d'erreur (ici commun avec la sortie)
 #SBATCH --wckey=submitit
-#SBATCH --array=1-10
+#SBATCH --array=0-1
 
 #SBATCH -L fs_store,fs_work
 
@@ -35,16 +35,16 @@ source $WORK/Environments/bench/bin/activate
 export WANDB_MODE=offline
 cit=0
 group=1
-folder=recon_wocc 
-for method in ncpdnet wv tv wcrr drunet
+folder=tune_again 
+for method in drunet #ncpdnet wv tv wcrr 
 do
 	for vid in 0 1
 	do
-		ctr=$((ctr+1))
 		if [ $((ctr/group)) -eq $SLURM_ARRAY_TASK_ID ]
 		then
-			python reconstruction_after_tune.py --root $SCRATCH/DATA/Benchmark_Networks --simulation 0 --method $method --volume_id $vid  --compress_coil -1 --folder $folder --init sense 
+			python prospective_tuning.py --root $SCRATCH/DATA/Benchmark_Networks --simulation 0 --method $method --volume_id $vid  --compress_coil -1 --folder $folder --init sense 
 		fi
+		ctr=$((ctr+1))
 	done
 done
 wait

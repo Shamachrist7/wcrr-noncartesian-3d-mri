@@ -74,7 +74,7 @@ scaler = 1e-6 # data normalizer
 noise_level = 2e-3
 max_iter = 200 # Maximum number of iterations
 data_fidelity = L2_precon(weights=torch.tensor(1.0))
-sigmas = [0] # Dummy for all, except WCRR
+sigmas = [0, 0] # Dummy for all, except WCRR
 
 if inp.simulation:
     volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".h5")])[:15]
@@ -102,12 +102,11 @@ if method.lower()=="drunet":
     drunet = DRUNet(in_channels=2, out_channels=2, dim=3, pretrained=None).to(device)
     drunet.load_state_dict(torch.load("weights/drunet/drunet_3d_complex_denoise.pth", map_location=device, weights_only=True))
     prior_drunet = PnP(denoiser=drunet.eval())
-    
 ##### l1-wavelet prior and hyperparameters #####
 if method.lower()=="wv":
     prior_wv = WaveletPrior(level=4, wv="db4", p=1, wvdim=3)
     lmbds = [2e-3, 2e-3]
-    tol = 5e-3 #1e-3
+    tol = 1e-3 #1e-3
 ##### TV prior and hyperparameters #####
 if method.lower()=="tv":
     lmbds = [0.7, 1]
@@ -119,7 +118,7 @@ if method.lower()=="wcrr":
     WCRR.eval()
     lmbds = [8.5e-3, 1e-2]
     sigmas = [0.07, 0.06]
-    tol = 1e-2
+    tol = 1e-3
 ##### (Not rotation invariant) WCRR_no_rot prior and hyperparameters #####
 if method.lower()=="wcrr_no_rot":
     WCRR_no_rot = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=False).to(device)
@@ -131,7 +130,7 @@ if method.lower()=="wcrr_no_rot":
     tol = 1e-2
 ##### NC-PDNet #####
 if method.lower()=="ncpdnet":
-    lmbds = [0] # Dummy
+    lmbds = [0, 0] # Dummy
     class DummyNUFFT:
         def op(self, x):
             return x  
@@ -308,7 +307,7 @@ for i, volume in enumerate(volumes):
         recon  = torch.abs(ri_to_complex(x_rec_ri_wv)) # Its magnitude
     # PnP-DRUNet recon
     if method.lower()=="drunet":
-        sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=1, sigma_init=sigma, sigma_min=0.01, lmbd=lmbd, device=device)
+        sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=max_iter, sigma_init=sigma, sigma_min=0.01, lmbd=lmbd, device=device)
         solver_drunet = HQS(
             prior=prior_drunet,
             data_fidelity=data_fidelity,

@@ -74,6 +74,7 @@ scaler = 1e-6 # data normalizer
 noise_level = 2e-3
 max_iter = 200 # Maximum number of iterations
 data_fidelity = L2_precon(weights=torch.tensor(1.0))
+sigmas = [0, 0] # Dummy for all, except WCRR
 
 if inp.simulation:
     volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".h5")])[:15]
@@ -96,24 +97,16 @@ print(volumes)
 
 ##### PnP-DRUNet pior and hyperparameters #####
 if method.lower()=="drunet":
+    lmbds = [2e-3, 2e-3]
+    sigmas = [1e-2, 2e-2]
     drunet = DRUNet(in_channels=2, out_channels=2, dim=3, pretrained=None).to(device)
     drunet.load_state_dict(torch.load("weights/drunet/drunet_3d_complex_denoise.pth", map_location=device, weights_only=True))
     prior_drunet = PnP(denoiser=drunet.eval())
-    sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=1, sigma_init=0.01, lmbd=2e-3, device=device)
-    solver_drunet = HQS(
-            prior=prior_drunet,
-            data_fidelity=data_fidelity,
-            stepsize=stepsize,
-            sigma_denoiser=sigma_denoiser,
-            max_iter=num_iter,
-            verbose=True,
-            show_progress_bar = True,
-        )
 ##### l1-wavelet prior and hyperparameters #####
 if method.lower()=="wv":
     prior_wv = WaveletPrior(level=4, wv="db4", p=1, wvdim=3)
     lmbd = 3e-3
-    tol = 5e-3 #1e-3
+    tol = 1e-3 #1e-3
 ##### TV prior and hyperparameters #####
 if method.lower()=="tv":
     lmbd = 0.3
@@ -199,7 +192,7 @@ for i, volume in enumerate(volumes):
         y = F_raw.op(x) # simulates the undersampled kspace volume y. The zero-filled recon comes from it
         y = y + noise_level * torch.randn_like(y)
         print("Succesfully simulated!")
-        
+        inp.precomputed_smaps_available = False
         if not inp.precomputed_smaps_available:
             print(f"smaps estimation from measurement {i}!")
             print("Start ... ")
