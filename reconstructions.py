@@ -97,8 +97,8 @@ print(volumes)
 
 ##### PnP-DRUNet pior and hyperparameters #####
 if method.lower()=="drunet":
-    lmbds = [2e-3, 2e-3]
-    sigmas = [1e-2, 2e-2]
+    lmbd = 2e-3
+    sigma = 1e-2
     drunet = DRUNet(in_channels=2, out_channels=2, dim=3, pretrained=None).to(device)
     drunet.load_state_dict(torch.load("weights/drunet/drunet_3d_complex_denoise.pth", map_location=device, weights_only=True))
     prior_drunet = PnP(denoiser=drunet.eval())
@@ -312,6 +312,16 @@ for i, volume in enumerate(volumes):
         recon  = torch.abs(ri_to_complex(x_rec_ri_wv)) # Its magnitude
     # PnP-DRUNet recon
     if method.lower()=="drunet":
+        sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=max_iter, sigma_init=sigma, sigma_min=0.01, lmbd=lmbd, device=device)
+        solver_drunet = HQS(
+            prior=prior_drunet,
+            data_fidelity=data_fidelity,
+            stepsize=stepsize,
+            sigma_denoiser=sigma_denoiser,
+            max_iter=num_iter,
+            verbose=True,
+            show_progress_bar = True,
+        )
         with torch.no_grad():
             t1_drunet = time.time()
             x_rec_ri_drunet = solver_drunet(y.to(device), physics, init=init.to(device), compute_metrics=False).detach().cpu()
