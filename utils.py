@@ -215,11 +215,10 @@ def normalize_kspace(kspace_data, kspace_loc, thresh=0.05):
     return kspace_data/normalization_fact , normalization_fact
 
 
-
 # -----------------------------------
 # Computes the DPIR parameters (denoiser noise level and stepsize per iteration) based on the noise level of the input image and the regularization parameter lambda.
 # -----------------------------------
-def get_DPIR_params(num_iter=1, sigma_init=0.01, lmbd=1e-3, device='cpu'):
+def get_DPIR_params(num_iter=8, sigma=2e-3, lmbd=5.5):
     r"""
     Default parameters for the DPIR Plug-and-Play algorithm.
 
@@ -227,15 +226,14 @@ def get_DPIR_params(num_iter=1, sigma_init=0.01, lmbd=1e-3, device='cpu'):
     :param str, torch.device device: Device to run the algorithm, either "cpu" or "cuda". Default is "cpu".
     :return: tuple(list with denoiser noise level per iteration, list with stepsize per iteration, iterations).
     """
-    sigma_min=0.01
+    sigma_init=0.01
     sigma_denoiser = torch.logspace(
         torch.log10(torch.tensor(sigma_init, dtype=torch.float32)),
-        torch.log10(torch.tensor(sigma_min, dtype=torch.float32)),
+        torch.log10(torch.tensor(sigma, dtype=torch.float32)),
         steps=num_iter,
         dtype=torch.float32,
-        device=device,
     )
 
-    stepsize = (1/lmbd) * (sigma_denoiser / sigma_min) ** 2
+    stepsize = lmbd * (sigma_denoiser / sigma) ** 2
 
     return sigma_denoiser, stepsize, num_iter
