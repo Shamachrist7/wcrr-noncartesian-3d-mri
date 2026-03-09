@@ -90,7 +90,7 @@ if inp.simulation:
         kspace_loc = np.vstack([kspace_loc, acs_loc])
 else:
     # your 50 multi-coil volumes (12 or 32 coils)
-    volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".dat")])
+    volumes = sorted([fn for fn in os.listdir(root) if (fn.endswith(".dat") or fn.endswith(".pkl"))])
 
 volumes = [volumes[inp.volume_id]] if inp.volume_id != -1 else volumes
 print(volumes)

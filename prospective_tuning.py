@@ -7,7 +7,7 @@ from mrinufft.io import read_trajectory
 from mrinufft.io.utils import add_phase_to_kspace_with_shifts
 from mrinufft.extras.smaps import cartesian_espirit, coil_compression
 from baselines.grappa_reconstruction import do_grappa_and_append_data
-from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, _load_volumes, L2_precon, normalize_kspace, get_acs_locations, get_DPIR_params
+from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, _load_volumes, L2_precon, normalize_kspace, get_acs_locations, get_DPIR_params, convert_mask_to_locations
 from reg_architectures import WCRR3D
 from deepinv.optim.prior import PnP, WaveletPrior
 from deepinv.optim import HQS, FISTA
@@ -90,7 +90,7 @@ if inp.simulation:
         kspace_loc = np.vstack([kspace_loc, acs_loc])
 else:
     # your 50 multi-coil volumes (12 or 32 coils)
-    volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".dat")])
+    volumes = sorted([fn for fn in os.listdir(root) if (fn.endswith(".dat") or fn.endswith(".pkl"))])
 
 volumes = [volumes[inp.volume_id]] if inp.volume_id != -1 else volumes
 print(volumes)
@@ -150,34 +150,34 @@ for i, volume in enumerate(volumes):
             y, V = coil_compression(y, inp.compress_coil)
         y = y  * 1e3 #/ 0.9 # Scale real data to same scale as simulations
         C, *XYZ = data_header['ref'].shape
-        if inp.compress_coil > 0:
-            x = torch.tensor(ifft((cp.asarray(V) @ fft(cp.asarray(data_header['ref'])).reshape(C, -1)).reshape(V.shape[0], *XYZ)), dtype=torch.complex64).cpu()
-        else:
-            x = torch.tensor(data_header['ref'], dtype=torch.complex64)
-        traj, traj_params = read_trajectory(os.path.join(root, "traj", data_header['trajectory_name']), dwell_time=0.01/data_header['oversampling_factor'])
-        caipi_delta = 1
-        y = add_phase_to_kspace_with_shifts(
-            y, 
-            traj.reshape(-1, traj_params["dimension"]),
-            normalized_shifts=(
-                np.array(data_header["shifts"])
-                / np.array(traj_params["FOV"])
-                * np.array(traj_params["img_size"])
-                / 1000
-            ),
-        )
-        y = torch.from_numpy(y)
-        traj[traj < -0.5] = -0.5
-        traj[traj > 0.5] = 0.5
-        kspace_loc = traj.reshape(-1, traj_params["dimension"])
-        # @Shama you can use ESPIRiT like this to get the smaps from the acs data in data_header['acs'], we started doing external ACS acquisitions for all current acquisitions
-        C, *XYZ = data_header['acs'].shape
-        if inp.compress_coil > 0:
-            smaps = cartesian_espirit(cp.array((V @ data_header['acs'].reshape(C, -1)).reshape(V.shape[0], *XYZ), dtype=cp.complex64), traj_params['img_size'], decim=4, crop=0).get()
-        else:
-            smaps = cartesian_espirit(cp.asarray(data_header['acs'], dtype=cp.complex64), traj_params['img_size'], decim=4, crop=0).get()
-        # Clean up cupy memory
+        x = torch.tensor(data_header['ref'], dtype=torch.complex64)
         cp._default_memory_pool.free_all_blocks()
+        try:
+            traj, traj_params = read_trajectory(os.path.join(root, "traj", data_header['trajectory_name']), dwell_time=0.01/data_header['oversampling_factor'])
+            caipi_delta = 1
+            y = add_phase_to_kspace_with_shifts(
+                y, 
+                traj.reshape(-1, traj_params["dimension"]),
+                normalized_shifts=(
+                    np.array(data_header["shifts"])
+                    / np.array(traj_params["FOV"])
+                    * np.array(traj_params["img_size"])
+                    / 1000
+                ),
+            )
+            img_size = traj_params['img_size']
+            y = torch.from_numpy(y)
+            traj[traj < -0.5] = -0.5
+            traj[traj > 0.5] = 0.5
+            kspace_loc = traj.reshape(-1, traj_params["dimension"])
+            C, *XYZ = data_header['acs'].shape
+        except:
+            print("It is cartesian data")
+            mask = np.linalg.norm(y, axis=0)>0
+            kspace_loc =  convert_mask_to_locations(mask)
+            y = torch.from_numpy(np.ascontiguousarray(y[:, mask]))
+            img_size = mask.shape
+        smaps = cartesian_espirit(cp.asarray(data_header['acs'], dtype=cp.complex64), img_size, decim=4, crop=0).get()
         coils = y.shape[0]
         F_raw = get_operator(backend)(kspace_loc, x.shape[1:], n_coils=coils, density=True, squeeze_dims=True) # NUFFT operator that simulates the measurement (takes coil images as input, outputs k-space)
     else:

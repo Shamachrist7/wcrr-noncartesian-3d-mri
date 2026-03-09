@@ -35,14 +35,14 @@ source $WORK/Environments/bench/bin/activate
 export WANDB_MODE=offline
 cit=0
 group=1
-folder=tune_again 
-for method in drunet #ncpdnet wv tv wcrr 
+folder=tune_old 
+for method in wv tv #wcrr drunet ncpdnet
 do
-	for vid in 0 1
+	for vid in 1
 	do
 		if [ $((ctr/group)) -eq $SLURM_ARRAY_TASK_ID ]
 		then
-			python prospective_tuning.py --root $SCRATCH/DATA/Benchmark_Networks --simulation 0 --method $method --volume_id $vid  --compress_coil -1 --folder $folder --init sense 
+			python old_tuning.py --root $SCRATCH/DATA/Benchmark_Networks --simulation 0 --method $method --volume_id $vid  --compress_coil -1 --folder $folder --init sense 
 		fi
 		ctr=$((ctr+1))
 	done

@@ -38,6 +38,15 @@ def sum_of_squares(img_channels: np.ndarray) -> np.ndarray:
 # Preprocess the kspace volume and return the image domain version
 # -----------------------------------------------------------------
 def _load_volumes(filename, sr = 0.85 ):
+    if filename.endswith('pkl'):
+        import pickle as pkl
+        kspace_data, mask, acs = pkl.load(open(filename, 'rb'))
+        data_header = {
+            "mask": mask,
+            "acs": acs
+        }
+        data_header['ref'] = nib.load(filename.replace('.pkl', '_ref.nii.gz')).get_fdata(dtype=np.complex64)
+        return (kspace_data.astype(np.complex64), data_header)
     if filename.endswith('.dat'):
         kspace_data, data_header = read_arbgrad_rawdat(filename)
         data_header['ref'] = nib.load(filename.replace('.dat', '_ref.nii.gz')).get_fdata(dtype=np.complex64)
@@ -238,3 +247,25 @@ def get_DPIR_params(num_iter=1, sigma_init=0.01, sigma_min=0.01, lmbd=1e-3, devi
     stepsize = (1/lmbd) * (sigma_denoiser / sigma_min) ** 2
 
     return sigma_denoiser, stepsize, num_iter
+
+def convert_mask_to_locations(mask):
+    """Return the converted Cartesian mask as sampling locations.
+
+    Parameters
+    ----------
+    mask: numpy.ndarray, {0,1}
+        ND matrix, not necessarly a square matrix.
+
+    Returns
+    -------
+    samples_locations: numpy.ndarray
+        samples location between [-0.5, 0.5[ of shape MxN where M is the
+        number of 1 values in the mask.
+    """
+    locations = np.where(mask == 1)
+    rslt = []
+    for dim, loc in enumerate(locations):
+        loc_n = loc.astype("float") / mask.shape[dim] - 0.5
+        rslt.append(loc_n)
+
+    return np.asarray(rslt).T
