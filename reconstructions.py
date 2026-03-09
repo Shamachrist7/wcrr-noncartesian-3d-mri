@@ -99,7 +99,7 @@ if method.lower()=="drunet":
     drunet = DRUNet(in_channels=2, out_channels=2, dim=3, pretrained=None).to(device)
     drunet.load_state_dict(torch.load("weights/drunet/drunet_3d_complex_denoise.pth", map_location=device, weights_only=True))
     prior_drunet = PnP(denoiser=drunet.eval())
-    sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=1, sigma_init=0.01, lmbd=2e-3, device=device)
+    sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=8, sigma=2e-3, lmbd=5.5)
     solver_drunet = HQS(
             prior=prior_drunet,
             data_fidelity=data_fidelity,
