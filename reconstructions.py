@@ -116,7 +116,7 @@ if method.lower()=="wv":
     tol = 5e-3 #1e-3
 ##### TV prior and hyperparameters #####
 if method.lower()=="tv":
-    lmbd = 0.3
+    lmbd = 2e-4
     tol = 1e-3
 ##### (Rotation invariant) WCRR prior and hyperparameters #####
 if method.lower()=="wcrr":
@@ -133,7 +133,7 @@ if method.lower()=="wcrr_no_rot":
     WCRR_no_rot.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_no_rotations_bilevel_IFT_ckpt_100.pt", weights_only=True, map_location=device))
     WCRR_no_rot.eval()
     lmbd = 5e-3  # Not definitive
-    sigma = 0.06 # Not definitive
+    sigma = 0.05 # Not definitive
     sigma = torch.tensor([sigma], device=device)
     tol = 1e-2
 ##### NC-PDNet #####
