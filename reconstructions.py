@@ -8,7 +8,7 @@ from mrinufft.io.utils import add_phase_to_kspace_with_shifts
 from mrinufft.extras.smaps import cartesian_espirit, coil_compression
 from baselines.grappa_reconstruction import do_grappa_and_append_data
 from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, _load_volumes, L2_precon, normalize_kspace, get_acs_locations, get_DPIR_params
-from reg_architectures import WCRR3D
+from reg_architectures import WCRR3D, WCRR3D_eval
 from deepinv.optim.prior import PnP, WaveletPrior
 from deepinv.optim import HQS, FISTA
 from baselines.drunet.drunet_base import DRUNet
@@ -42,6 +42,7 @@ parser.add_argument("--smaps_on_gpu", type=bool, default=True) # Whether to comp
 parser.add_argument("--smaps_precomputation", type=bool, default=False) # Whether to only precompute the smaps and save them, without doing the reconstructions. This can be useful to avoid recomputing the smaps every time you want to test a new method or hyperparameters. If True, make sure to set the correct root directory and run this once before running the reconstructions with smaps_precomputation=False and loading the smaps from disk in utils.py.
 parser.add_argument("--precomputed_smaps_available", type=bool, default=True) # Whether the precomputed smaps are already available on disk. If True, make sure to set the correct smaps_dir in utils.py to load them.
 parser.add_argument("--init", type=str, default="grappa") # "grappa" or "sense"
+parser.add_argument("--use_wandb", type=bool, default=True) # Wether to use wandb to log the results or not. We use wandb to log the PSNR, SSIM and time for each reconstruction, which can be very useful for comparing different methods and hyperparameters. If you don't want to use wandb, you can set this to False and the code will just print the results without logging them.
 
 inp = parser.parse_args()
 coil = inp.coil # 12 or 32 or different for prospective users
@@ -55,13 +56,13 @@ if inp.smaps_precomputation or inp.precomputed_smaps_available:
     smaps_dir = root + f"/first_15_smaps/{coil}coil_{inp.traj[:-4]}/"
     os.makedirs(smaps_dir, exist_ok=True)
  
-if not inp.smaps_precomputation:    
+if inp.use_wandb and not inp.smaps_precomputation:    
     wandb.init(
             # Set the project where this run will be logged
             project=f"{coil}coil_results_{inp.traj[:-4]}", # project name
             name=f"{method.lower()}_recons",
             config={
-            "max_iter": 200,
+            "max_iter": 500,
             "noise_level": 2e-3,
             })
 volume_id = inp.volume_id
@@ -69,10 +70,10 @@ start_dir = inp.folder
 os.makedirs(f"{start_dir}_{coil}coil_{inp.traj[:-4]}", exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-backend = "cufinufft"
+backend = "cufinufft" # "gpunufft"
 scaler = 1e-6 # data normalizer
 noise_level = 2e-3
-max_iter = 200 # Maximum number of iterations
+max_iter = 500 # Maximum number of iterations
 data_fidelity = L2_precon(weights=torch.tensor(1.0))
 
 if inp.simulation:
@@ -117,25 +118,43 @@ if method.lower()=="wv":
 ##### TV prior and hyperparameters #####
 if method.lower()=="tv":
     lmbd = 2e-4
-    tol = 1e-3
+    tol = 5e-4
 ##### (Rotation invariant) WCRR prior and hyperparameters #####
 if method.lower()=="wcrr":
-    WCRR = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=True).to(device)
-    WCRR.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_bilevel_IFT_ckpt_100.pt", weights_only=True, map_location=device))
-    WCRR.eval()
+    regularizer = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=True).to(device)
+    regularizer.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_bilevel_IFT_ckpt_100.pt", weights_only=True, map_location=device))
+    regularizer.eval()
     lmbd = 5e-3
     sigma = 0.06
     sigma = torch.tensor([sigma], device=device)
-    tol = 1e-2
+    tol = 5e-3
+    WCRR = WCRR3D_eval(
+        conv_lip=regularizer.get_conv_lip(),
+        beta=torch.exp(regularizer.beta),
+        scaling_sigma=regularizer.scaling(sigma),
+        filters=regularizer.filters,
+        rotations=True,
+    )
+    del regularizer
+    torch.cuda.empty_cache()
 ##### (Not rotation invariant) WCRR_no_rot prior and hyperparameters #####
 if method.lower()=="wcrr_no_rot":
-    WCRR_no_rot = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=False).to(device)
-    WCRR_no_rot.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_no_rotations_bilevel_IFT_ckpt_100.pt", weights_only=True, map_location=device))
-    WCRR_no_rot.eval()
-    lmbd = 5e-3  # Not definitive
-    sigma = 0.05 # Not definitive
+    regularizer = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=False).to(device)
+    regularizer.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_no_rotations_bilevel_IFT_ckpt_100.pt", weights_only=True, map_location=device))
+    regularizer.eval()
+    lmbd = 5e-3
+    sigma = 0.05
     sigma = torch.tensor([sigma], device=device)
-    tol = 1e-2
+    tol = 5e-3
+    WCRR_no_rot = WCRR3D_eval(
+        conv_lip=regularizer.get_conv_lip(),
+        beta=torch.exp(regularizer.beta),
+        scaling_sigma=regularizer.scaling(sigma),
+        filters=regularizer.filters,
+        rotations=False,
+    )
+    del regularizer
+    torch.cuda.empty_cache()
 ##### NC-PDNet #####
 if method.lower()=="ncpdnet":
     class DummyNUFFT:
@@ -145,7 +164,7 @@ if method.lower()=="ncpdnet":
             return torch.zeros_like(kspace)
     dummy_nufft = DummyNUFFT()
     ncpdnet = NCPDNET(nufft_op=dummy_nufft, image_net_type="ImageNetUnet", base_filters=16, num_stages=3, n_primal=2, n_iter=6, activation="silu", dim=3, complex_recon=True, normalize_input=True)
-    weights = torch.load("./weights/ncpdnet/ncpdnet_weights.pth", map_location=device, weights_only=True)
+    weights = torch.load("./weights/ncpdnet/checkpoint-epoch200.pth", map_location=device, weights_only=True)
     ncpdnet.load_state_dict(weights["state_dict"])
 
 # reconstructions
@@ -254,10 +273,9 @@ for i, volume in enumerate(volumes):
             new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'], caipi_delta=caipi_delta)
             y_grappa = torch.from_numpy(y_grappa) # ACS reconstructed with grappa (In the k-space)
             # Grappa + DCp recon
-            nufft_grappa = get_operator(backend)(new_kspace_loc, x.shape[1:], n_coils=coils, smaps=smaps, density=True, squeeze_dims=True)
+            nufft_grappa = get_operator(backend)(new_kspace_loc, x.shape[1:], n_coils=coils, smaps=smaps, density=True, squeeze_dims=True)#{"name": "low_frequency", "kspace_data": cp.asarray(y_grappa)}, density=True, squeeze_dims=True)
             grappa_ri = complex_to_ri(nufft_grappa.adj_op(y_grappa))
             dt_init = time.time() - t1_grappa
-            del nufft_grappa # free memory
         except:
             print("GRAPPA reconstruction failed! Please, use SENSE as initialization for this trajectory!")
             break
@@ -275,7 +293,7 @@ for i, volume in enumerate(volumes):
     reference = torch.abs(ri_to_complex(x_gt_ri))
     
     # Clean memory before proper reconstructions
-    del F_raw, E_est,
+    del F_raw
     gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.ipc_collect()
@@ -367,23 +385,23 @@ for i, volume in enumerate(volumes):
     # NC-PDnet recon
     if method.lower()=="ncpdnet":
         # NC-PDNet is trained with Density compensation
-        yn, norm_fact = normalize_kspace(y_grappa, E_est.samples) #normalize wrt energy of central region
-        y = torch.from_numpy(yn).to(device)
-        x = ri_to_complex(x_adj_ri).to(device)[None, None] / norm_fact
+        yn, norm_fact = normalize_kspace(y, torch.from_numpy(E_est.samples)) #normalize wrt energy of central region
+        y = yn.to(device)
+        init_cplx = ri_to_complex(init).to(device)[None, None] / norm_fact # normalised init (GRAPPA/SENSE) reconstruction as input to ncpdnet
         E_est.squeeze_dims = False # preserve batch dim for ncpdnet
         ncpdnet.update_nufft_op(E_est)
         ncpdnet.to(device).eval()
         with torch.no_grad():
             t1_ncpdnet = time.time()
-            recon = ncpdnet(y.unsqueeze(0), x).squeeze().detach().cpu() 
+            recon = ncpdnet(y.unsqueeze(0), init_cplx).squeeze().detach().cpu() 
             recon = torch.abs(recon) * norm_fact
             dt = time.time() - t1_ncpdnet
     # Log all the metrics to weights and biases (psnr, ssim and time)
     wandb.log({"volume_idx": i if volume_id == -1 else volume_id, f"psnr_{inp.init.lower()}": psnr(init_recon, reference), f"ssim_{inp.init.lower()}": ssim(init_recon, reference), f"psnr_{method.lower()}": psnr(recon, reference), f"ssim_{method.lower()}": ssim(recon, reference), f"time_{inp.init.lower()}": dt_init, f"time_{method.lower()}": dt})
-    if i < 10:
-        torch.save(reference, f"{start_dir}_{coil}coil_{inp.traj[:-4]}/volume_{i if volume_id == -1 else volume_id}_gt.pt")
-        torch.save(init_recon, f"{start_dir}_{coil}coil_{inp.traj[:-4]}/volume_{i if volume_id == -1 else volume_id}_{inp.init.lower()}.pt")
-        torch.save(recon, f"{start_dir}_{coil}coil_{inp.traj[:-4]}/volume_{i if volume_id == -1 else volume_id}_{method.lower()}.pt")
+
+    torch.save(reference, f"{start_dir}_{coil}coil_{inp.traj[:-4]}/volume_{i if volume_id == -1 else volume_id}_gt.pt")
+    torch.save(init_recon, f"{start_dir}_{coil}coil_{inp.traj[:-4]}/volume_{i if volume_id == -1 else volume_id}_{inp.init.lower()}.pt")
+    torch.save(recon, f"{start_dir}_{coil}coil_{inp.traj[:-4]}/volume_{i if volume_id == -1 else volume_id}_{method.lower()}.pt")
     # 1) Break references to gpuNUFFT operators & physics (most important)
     # physics holds E_est internally, so deleting E_est alone is not enough.
 
@@ -415,4 +433,5 @@ for i, volume in enumerate(volumes):
         torch.cuda.ipc_collect()
             
 print("Reconstructions finished!")
-wandb.finish()
+if inp.use_wandb:
+    wandb.finish()
