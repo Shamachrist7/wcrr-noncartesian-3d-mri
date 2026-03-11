@@ -50,7 +50,7 @@ if inp.simulation:
     root = inp.root + f"/Test/{coil}coil"
 else:
     root = inp.root
-    
+inp.precomputed_smaps_available = False
 if inp.smaps_precomputation or inp.precomputed_smaps_available:
     smaps_dir = root + f"/first_15_smaps/{coil}coil_{inp.traj[:-4]}/"
     os.makedirs(smaps_dir, exist_ok=True)
@@ -69,7 +69,7 @@ start_dir = inp.folder
 os.makedirs(f"{start_dir}_{coil}coil_{inp.traj[:-4]}", exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-backend = "cufinufft"
+backend = "gpuNUFFT"
 scaler = 1e-6 # data normalizer
 noise_level = 2e-3
 max_iter = 200 # Maximum number of iterations
@@ -275,7 +275,7 @@ for i, volume in enumerate(volumes):
     reference = torch.abs(ri_to_complex(x_gt_ri))
     
     # Clean memory before proper reconstructions
-    del F_raw, E_est,
+    del F_raw
     gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.ipc_collect()
@@ -367,9 +367,9 @@ for i, volume in enumerate(volumes):
     # NC-PDnet recon
     if method.lower()=="ncpdnet":
         # NC-PDNet is trained with Density compensation
-        yn, norm_fact = normalize_kspace(y_grappa, E_est.samples) #normalize wrt energy of central region
-        y = torch.from_numpy(yn).to(device)
-        x = ri_to_complex(x_adj_ri).to(device)[None, None] / norm_fact
+        yn, norm_fact = normalize_kspace(y.cpu().numpy(), E_est.samples)
+        y = torch.from_numpy(yn).to(device).to(torch.complex64)
+        x = ri_to_complex(init).to(device)[None, None] / norm_fact
         E_est.squeeze_dims = False # preserve batch dim for ncpdnet
         ncpdnet.update_nufft_op(E_est)
         ncpdnet.to(device).eval()

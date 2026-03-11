@@ -19,9 +19,9 @@
 #SBATCH --output=%x_%A_%a.out # nom du fichier de sortie
 #SBATCH --error=%x_%A_%a.out  # nom du fichier d'erreur (ici commun avec la sortie)
 #SBATCH --wckey=submitit
-#SBATCH --array=1-10
+#SBATCH --array=0-3
 
-#SBATCH -L fs_store,fs_work
+#SBATCH -L fs_scratch,fs_work
 
 #SBATCH --cpus-per-task=32
 
@@ -33,26 +33,36 @@ module purge
 module load cuda/13
 source $WORK/Environments/bench/bin/activate
 export WANDB_MODE=offline
-cit=0
+ctr=0
 OUTDIR=$SCRATCH/Benchmark
 
 mkdir -p $OUTDIR
-group=2
-folder=(recon_wg recon_wog)
-for I in 0 1
+group=1
+folder="output/retune3x2"
+for method in wcrr wv tv drunet 
 do
-for method in ncpdnet wv drunet wcrr tv 
-do
-	for vid in 0 1
+	for vid in 0  
 	do
-		ctr=$((ctr+1))
 		if [ $((ctr/group)) -eq $SLURM_ARRAY_TASK_ID ]
 		then
-	    	    python reconstructions.py --root $SCRATCH/DATA/Benchmark_Networks --simulation 0 --method $method --volume_id $vid  --compress_coil ${cc[$I]} --folder ${folder[$I]} --grecon_in_fourier $I &
+	    	    python prospective_tuning.py --root $SCRATCH/DATA/Benchmark_Networks --simulation 0 --method $method --volume_id $vid --compress_coil -1 --folder $folder --init sense 
 		fi
+		ctr=$((ctr+1))
 	done
 done
-done
+#  for method in drunet tv         
+#  do
+#          for vid in 1  
+#          do
+#                  if [ $((ctr/group)) -eq $SLURM_ARRAY_TASK_ID ]
+#                  then
+#                      python prospective_tuning.py --root $SCRATCH/DATA/Benchmark_Networks --simulation 0 --method $method --volume_id $vid --compress_coil -1 --folder $folder --init sense
+#                  fi
+#                  ctr=$((ctr+1))
+#          done
+#  done
+
 wait
+
 
 
