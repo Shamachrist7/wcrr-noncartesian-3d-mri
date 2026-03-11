@@ -190,30 +190,30 @@ class L2_precon(DataFidelity):
         """
         return physics.prox_l2_precon(x, y, gamma, self.weights, tol=tol)
 
-def normalize_kspace(kspace_data, kspace_loc, thresh=0.05):
+
+def normalize_kspace(kspace_data: torch.Tensor, kspace_loc, thresh=0.05):
     """
     Normalize k-space data by the average energy of the central region.
 
     Parameters:
-    - kspace_loc: np.ndarray of shape (M, 3), the 3D k-space coordinates.
-    - kspace_data: np.ndarray of shape (N_coils, M), the complex k-space values.
+    - kspace_loc: torch.Tensor of shape (M, 3), the 3D k-space coordinates.
+    - kspace_data: torch.Tensor of shape (N_coils, M), the complex k-space values.
     - thresh: float, optional. Threshold radius for selecting the central region.
     If 0.0, only the loc closest to the center is used.
 
     Returns:
-    - kspace_data_norm: np.ndarray, normalized k-space data.
+    - kspace_data_norm: torch.Tensor, normalized k-space data.
     - normalization_fact: float, the normalization factor used.
     """
-    dist_to_center = np.linalg.norm(kspace_loc, axis=-1)
-    central_reg = np.zeros_like(dist_to_center, dtype=bool)
+    dist_to_center = torch.linalg.norm(kspace_loc, dim=-1)
+    central_reg = torch.zeros_like(dist_to_center, dtype=torch.bool)
     if thresh==0.0:
-        central_reg[np.argmin(dist_to_center)] = True
+        central_reg[torch.argmin(dist_to_center)] = True
     else:
         central_reg[dist_to_center <= thresh] = True
-    combined_energy = np.sqrt(np.sum(np.abs(kspace_data)**2, axis=0)) #SoS instead of Abs
-    normalization_fact = np.mean(combined_energy[central_reg])
+    combined_energy = sum_of_squares(kspace_data) # SoS instead of Abs
+    normalization_fact = torch.mean(combined_energy[central_reg])
     return kspace_data/normalization_fact , normalization_fact
-
 
 # -----------------------------------
 # Computes the DPIR parameters (denoiser noise level and stepsize per iteration) based on the noise level of the input image and the regularization parameter lambda.
