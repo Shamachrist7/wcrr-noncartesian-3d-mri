@@ -1,4 +1,4 @@
-# Weakly Convex Ridge Regularization for Accelerated 3D Non-Cartesian Parallel MRI Reconstruction
+# Weakly Convex Ridge Regularization for 3D Non-Cartesian MRI Reconstruction
 
 <table align="center">
   <tr>
