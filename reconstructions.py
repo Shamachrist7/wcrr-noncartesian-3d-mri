@@ -1,3 +1,5 @@
+from tokenize import Number
+
 import torch
 import numpy as np
 import cupy as cp
@@ -77,7 +79,7 @@ max_iter = 500 # Maximum number of iterations
 data_fidelity = L2_precon(weights=torch.tensor(1.0))
 
 if inp.simulation:
-    volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".h5")])[:15]
+    volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".h5")])[:10]
     # Load trajectory and get the k-space locations
     traj, traj_params = read_trajectory(inp.traj, dwell_time=0.01/2)
     traj = traj.copy()
@@ -100,7 +102,7 @@ if method.lower()=="drunet":
     drunet = DRUNet(in_channels=2, out_channels=2, dim=3, pretrained=None).to(device)
     drunet.load_state_dict(torch.load("weights/drunet/drunet_3d_complex_denoise.pth", map_location=device, weights_only=True))
     prior_drunet = PnP(denoiser=drunet.eval())
-    sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=8, sigma=2e-3, lmbd=5.5)
+    sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=8, sigma=2e-3, lmbd=5.0)
     solver_drunet = HQS(
             prior=prior_drunet,
             data_fidelity=data_fidelity,
@@ -117,15 +119,15 @@ if method.lower()=="wv":
     tol = 5e-3 #1e-3
 ##### TV prior and hyperparameters #####
 if method.lower()=="tv":
-    lmbd = 2e-4
+    lmbd = 1e-4
     tol = 5e-4
 ##### (Rotation invariant) WCRR prior and hyperparameters #####
 if method.lower()=="wcrr":
     regularizer = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=True).to(device)
-    regularizer.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_bilevel_IFT_ckpt_100.pt", weights_only=True, map_location=device))
+    regularizer.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_500_bilevel_IFT_ckpt_500.pt", weights_only=True, map_location=device))
     regularizer.eval()
-    lmbd = 5e-3
-    sigma = 0.06
+    lmbd = 0.01#5e-3
+    sigma = 0.03#0.06
     sigma = torch.tensor([sigma], device=device)
     tol = 5e-3
     WCRR = WCRR3D_eval(
@@ -164,8 +166,9 @@ if method.lower()=="ncpdnet":
             return torch.zeros_like(kspace)
     dummy_nufft = DummyNUFFT()
     ncpdnet = NCPDNET(nufft_op=dummy_nufft, image_net_type="ImageNetUnet", base_filters=16, num_stages=3, n_primal=2, n_iter=6, activation="silu", dim=3, complex_recon=True, normalize_input=True)
-    weights = torch.load("./weights/ncpdnet/checkpoint-epoch200.pth", map_location=device, weights_only=True)
+    weights = torch.load("./weights/ncpdnet/checkpoint-epoch168.pth", map_location=device, weights_only=True)
     ncpdnet.load_state_dict(weights["state_dict"])
+    print("Number of parameters in NC-PDNet: ", sum(p.numel() for p in ncpdnet.parameters()))
 
 # reconstructions
 
