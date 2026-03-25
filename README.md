@@ -3,7 +3,7 @@
 <table align="center">
   <tr>
     <td align="center">
-      <img src="reg_architectures/reg_architecture.png" width="450"><br>
+      <img src="reg_architectures/regularizer_architecture.png" width="450"><br>
       <b>(a) Regularizer Architecture</b>
     </td>
     <td align="center">
