@@ -126,8 +126,8 @@ if method.lower()=="wcrr":
     regularizer = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=True).to(device)
     regularizer.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_500_bilevel_IFT_ckpt_500.pt", weights_only=True, map_location=device))
     regularizer.eval()
-    lmbd = 0.01#5e-3
-    sigma = 0.03#0.06
+    lmbd = 0.01
+    sigma = 0.03
     sigma = torch.tensor([sigma], device=device)
     tol = 5e-3
     WCRR = WCRR3D_eval(
