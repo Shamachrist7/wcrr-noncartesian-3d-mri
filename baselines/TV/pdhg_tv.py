@@ -19,7 +19,7 @@ class PDHG_TV(nn.Module):
         self.lambd = lambda_reg
         self.steps = max_iter
         self.tau = 1.0 / lipschitz
-        self.sigma = 0.9 / (self.tau * 12) # 12 is the conservative bound on ||∇||_2^2 for 3D forward differences
+        self.sigma = 1.0 / (2 * self.tau * 12) # 12 is the conservative bound on ||∇||_2^2 for 3D forward differences
         self.rho = relaxation_param
         self.stopping_criterion = stopping_criterion
         self.df = data_fidelity
