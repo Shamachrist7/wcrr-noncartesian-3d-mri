@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 from typing import Callable, Tuple
-import inspect
 from torch.amp import autocast
 
 # Implements Algorithm 4 (non-monotone APG) from:
