@@ -2,7 +2,7 @@ import torch
 import wandb
 from tqdm import tqdm
 from deepinv.loss.metric import PSNR
-import copy
+#import copy
 from .utils.adabelief import AdaBelief
 
 def grad_norm(model, norm_type=2):
@@ -74,8 +74,8 @@ def score_training(
     psnr_train = []
     psnr_val = []
 
-    best_val_psnr = -float("inf")
-    best_regularizer_state = copy.deepcopy(regularizer.state_dict())
+    #best_val_psnr = -float("inf")
+    #best_regularizer_state = copy.deepcopy(regularizer.state_dict())
 
     for epoch in range(epochs):
         

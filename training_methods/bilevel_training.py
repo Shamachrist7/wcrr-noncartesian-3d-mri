@@ -1,12 +1,10 @@
 import torch
 import wandb
-import numpy as np
 from tqdm import tqdm
-import torch.nn.functional as F
 from deepinv.loss.metric import PSNR
 from deepinv.optim.utils import minres
 from evaluation.nmAPG3d import reconstruct_nmAPG
-import copy
+#import copy
 from .utils.adabelief import AdaBelief
 
 def grad_norm(model, norm_type=2):
@@ -182,8 +180,8 @@ def bilevel_training(
     psnr_train = []
     psnr_val = []
 
-    best_val_psnr = -float("inf")
-    best_regularizer_state = copy.deepcopy(regularizer.state_dict())
+    #best_val_psnr = -float("inf")
+    #best_regularizer_state = copy.deepcopy(regularizer.state_dict())
 
     for epoch in range(epochs):
         # ---- Training ----

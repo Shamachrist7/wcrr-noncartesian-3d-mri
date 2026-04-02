@@ -1,12 +1,13 @@
 import numpy as np
 import h5py
 import torch
+import torch.nn as nn
 from deepinv.physics import LinearPhysics
 from deepinv.optim.utils import conjugate_gradient
-from deepinv.loss.metric import PSNR, SSIM
 from deepinv.loss.metric.metric import Metric
 from deepinv.optim.data_fidelity import DataFidelity
 from mrinufft.io import read_arbgrad_rawdat
+from skimage.metrics import structural_similarity
 import nibabel as nib
 
 def fft(x):
@@ -23,7 +24,7 @@ def simulate_acs_data(x, acs_shape=(24, 24)):
     return kspace[:, :, kspace.shape[-2]//2 - acs_shape[0]//2 : kspace.shape[-2]//2 + acs_shape[0]//2, 
                   kspace.shape[-1]//2 - acs_shape[1]//2 : kspace.shape[-1]//2 + acs_shape[1]//2]
 
-def sum_of_squares(img_channels: np.ndarray) -> np.ndarray:
+def sum_of_squares(img_channels: torch.tensor) -> torch.tensor:
     """Combines complex channels with square root sum of squares.
 
     :param img_channels: Complex channels
@@ -85,10 +86,17 @@ def complex_to_ri(x_c: torch.Tensor) -> torch.Tensor:
     return torch.cat([real, imag], dim=1).to(torch.float32)
     
 # -----------------------------------
-# Complex magnitude PSNR & SSIM (for both, x_rec & x_ref are assumed to be the Magnitudes of the volumes)
+# Complex magnitude (masked) PSNR & SSIM (for both, pred & gt are assumed to be the torch.Tensor Magnitudes of the volumes)
 # -----------------------------------
-psnr = lambda x_rec, x_ref: PSNR(max_pixel=None)(x_rec.unsqueeze(0), x_ref.unsqueeze(0))
-ssim = lambda x_rec, x_ref: SSIM(max_pixel=None)(x_rec.unsqueeze(0), x_ref.unsqueeze(0))
+def psnr(pred, gt):
+    mask = compute_mask(gt.numpy())
+    gt_norm, pred_norm = normalize(gt.numpy(), pred.numpy(), "zscore")
+    return masked_psnr(gt_norm, pred_norm, mask)
+
+def ssim(pred, gt):
+    mask = compute_mask(gt.numpy())
+    gt_norm, pred_norm = normalize(gt.numpy(), pred.numpy(), "zscore")
+    return masked_ssim(gt_norm, pred_norm, mask)
 
 # helper to get the psnr history  during reconstructions from start to end
 class PSNR_MRI(Metric):
@@ -96,7 +104,9 @@ class PSNR_MRI(Metric):
         super().__init__(**kwargs)
 
     def metric(self, x_net, x, *args, **kwargs):
-        return PSNR(max_pixel=None)(torch.abs(ri_to_complex(x_net)).unsqueeze(0).cpu(), torch.abs(ri_to_complex(x)).unsqueeze(0).cpu())
+        mask = compute_mask(torch.abs(ri_to_complex(x)).cpu().numpy())
+        curr_psnr = masked_psnr(torch.abs(ri_to_complex(x)).cpu().numpy(), torch.abs(ri_to_complex(x_net)).cpu().numpy(), mask)
+        return torch.tensor(curr_psnr)
 
 # -----------------------------------
 # Physics wrapper for DeepInv in RI variable space
@@ -190,7 +200,6 @@ class L2_precon(DataFidelity):
         """
         return physics.prox_l2_precon(x, y, gamma, self.weights, tol=tol)
 
-
 def normalize_kspace(kspace_data: torch.Tensor, kspace_loc, thresh=0.05):
     """
     Normalize k-space data by the average energy of the central region.
@@ -215,6 +224,8 @@ def normalize_kspace(kspace_data: torch.Tensor, kspace_loc, thresh=0.05):
     normalization_fact = torch.mean(combined_energy[central_reg])
     return kspace_data/normalization_fact , normalization_fact
 
+
+
 # -----------------------------------
 # Computes the DPIR parameters (denoiser noise level and stepsize per iteration) based on the noise level of the input image and the regularization parameter lambda.
 # -----------------------------------
@@ -237,3 +248,141 @@ def get_DPIR_params(num_iter=8, sigma=2e-3, lmbd=5.5):
     stepsize = lmbd * (sigma_denoiser / sigma) ** 2
 
     return sigma_denoiser, stepsize, num_iter
+
+
+
+# -----------------------------------
+# Computes the effective filters
+# -----------------------------------
+def compute_effective_filters(conv_seq: nn.Sequential):
+    """
+    Compute the effective 3D filters of a sequential stack of Conv3d layers
+    by passing a Dirac impulse through the network.
+
+    Parameters
+    ----------
+    conv_seq : nn.Sequential
+        A sequence of 3D convolutional layers with padding that preserves spatial dimensions.
+
+    Returns
+    -------
+    torch.Tensor
+        Effective filters of shape [out_channels, in_channels, R, R, R],
+        where R is the overall receptive field.
+    """
+    # Determine input/output channels and kernel sizes
+    in_channels = conv_seq[0].in_channels
+    out_channels = conv_seq[-1].out_channels
+
+    # Compute overall receptive field
+    rf = 1
+    for layer in conv_seq:
+        if isinstance(layer, nn.Conv3d):
+            k = layer.kernel_size[0]  # assume cubic kernels
+            rf += (k - 1)
+    # rf is now the size of the effective kernel
+    L = rf
+    pad = L // 2
+
+    # Create Dirac impulse input: shape [1, in_channels, L, L, L]
+    impulse = torch.zeros(1, in_channels, L, L, L)
+    center = pad
+    # Set an impulse in each input channel
+    for c in range(in_channels):
+        impulse[0, c, center, center, center] = 1.0
+
+    # Run through the conv sequence
+    conv_seq = conv_seq.eval()
+    with torch.no_grad():
+        out = conv_seq(impulse)
+
+    # out shape: [1, out_channels, L, L, L]
+    filters = out[0]  # [out_channels, L, L, L]
+    # reshape to [out_channels, in_channels, L, L, L]
+    # Actually, because impulse had in_channels separate impulses, 
+    # out[0, o, :, :, :] holds sum over inputs; we need one impulse per input channel separately:
+    # So rerun per input channel:
+    eff_filters = torch.zeros(out_channels, in_channels, L, L, L)
+    with torch.no_grad():
+        for c in range(in_channels):
+            imp_c = torch.zeros_like(impulse)
+            imp_c[0, c, center, center, center] = 1.0
+            out_c = conv_seq(imp_c)[0]  # [out_channels, L, L, L]
+            eff_filters[:, c] = out_c
+    return eff_filters
+
+
+
+# -----------------------------------
+#  Masked metrics
+# -----------------------------------
+
+def compute_mask(gt, threshold=0.05):
+
+    mag = np.abs(gt)
+
+    mask = mag > threshold * mag.max()
+
+    return mask
+
+
+def masked_psnr(gt, pred, mask):
+
+    mse = np.mean((gt[mask]-pred[mask])**2)
+
+    data_range = gt.max()-gt.min()
+
+    return 20*np.log10(data_range/np.sqrt(mse))
+
+
+def masked_ssim(gt, pred, mask):
+
+    vals = []
+
+    for z in range(gt.shape[0]):
+
+        if mask[z].sum() < 10:
+            continue
+
+        vals.append(
+            structural_similarity(
+                gt[z],
+                pred[z],
+                data_range=gt.max()-gt.min()
+            )
+        )
+
+    return np.mean(vals)
+    
+    
+def normalize(gt, pred, mode):
+
+    if mode == "none":
+        return gt, pred
+
+    if mode == "global_max":
+        m = gt.max()
+        return gt/m, pred/m
+
+    if mode == "minmax":
+        mn, mx = gt.min(), gt.max()
+        gt = (gt-mn)/(mx-mn)
+        pred = (pred-mn)/(mx-mn)
+        return gt, pred
+
+    if mode == "zscore":
+        mean = gt.mean()
+        std = gt.std()
+        return (gt-mean)/std, (pred-mean)/std
+
+    if mode == "percentile":
+        p1, p99 = np.percentile(gt,[1,99])
+        gt = np.clip((gt-p1)/(p99-p1),0,1)
+        pred = np.clip((pred-p1)/(p99-p1),0,1)
+        return gt, pred
+
+    if mode == "magnitude":
+        m = np.abs(gt).max()
+        return gt/m, pred/m
+
+    raise ValueError("Unknown normalization")
