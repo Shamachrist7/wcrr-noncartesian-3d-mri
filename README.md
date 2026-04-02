@@ -56,36 +56,34 @@ It will create in each of the folders **Train** and **Val**, two sub-folders nam
 The Calgary Campinas Test data consist of 50 fully-sampled 12-coil k-space volumes and 50 fully-sampled 32-coil k-space volumes as **.h5** files. They just have to be organized as follows. In **my_root_directory**, create a folder named **Test** in which we have two sub-folders named **12coil** (which contains the  50 12-coil k-space .h5 files) and **32coil** (which contains the  50 32-coil k-space .h5 files). No further preprocessing of the Test data is required!
 
 
-## 3. Baseline reconstruction methods & Trainings
-We compare the *Weakly-Convex Ridge Regularizer (WCRR) + nmAPG (non-monotone Accelerated Proximal Gradient) solver* to the following baseline methods:
-- GRAPPA
-- Isotropic Total Variation (TV) regularizer + ADMM (Alternating Direction Method of Multipliers) solver
-- $l_1$-wavelets regularizer + ADMM solver
-- Plug-and-Play (PnP) DRUNet + ADMM solver
-- (At the moment, only the above mentioned methods are implemented in this repository. We will add more baselines later on!)
+### 3. Baseline reconstruction methods
+On the retrospectively simulated accelerated acquisitions, we compare *WCRR* to the following MRI reconstruction methods:
+- GRAPPA + DCp (Density Compensation)
+- Isotropic TV (Total Variation) solved with PDHG (Primal Dual Hybrid Gradient)
+- $l_1$-wavelet solved with FISTA
+- Plug-and-Play: DPIR coupled with a 3D DRUNet denoiser
+- NC-PDNet unrolled network
 
-Out of all of them, only WCRR (In its two versions) and DRUNet require training. We can train each of them by runing the following commands:
-- For WCRR (rotation-invariant version): ```python training_wcrr.py --root my_root_directory```
-- For WCRR (non-rotation-invariant version): ```python training_wcrr.py --root my_root_directory --regularizer_name "WCRR_no_rotations"```
-- For DRUNet: ```python training_drunet.py --root my_root_directory``` (But not really necessary, as we can download the trained weights from hugging face!)
+Out of all of them, our WCRR, NC-PDNet and the DRUNet are learned. The trained weights for WCRR and NC-PDNet are available in the **weights** folder. DRUNet's weights, on the other hand, were too heavy to be uploaded here. However, you can download them here on hugging face  and  put them in the directory **weights/drunet** before moving on with what follows below.
+
+In case you wish to retrain WCRR (And thus reproduce its weights by yourself), just run: ```python training_wcrr.py --root my_root_directory```
 
 
-## 4. Hyperparameters tuning (This step can safely be skipped!)
-Five specific validation volumes are chosen, and all the hyperparameters in each reconstruction method are tuned on them. *GRAPPA*'s parameters are already appropriately chosen and do not require tuning. We can tune the hyperparameters of each of the other methods by runing the following commands:
-- For WCRR (rotation-invariant version): ```python hyperparameters_tuning/tune_wcrr.py --root my_root_directory```
-- For WCRR (non-rotation-invariant version): ```python hyperparameters_tuning/tune_wcrr.py --root my_root_directory --regularizer_name "WCRR_no_rot"```
-- For PnP-DRUNet: ```python hyperparameters_tuning/tune_pnp_drunet.py --root my_root_directory```
+### 4. Hyperparameter tuning (In case you wish to reproduce the hyperparameter choices for each method)
+Five specific validation volumes are chosen, and all the hyperparameters for each reconstruction method are tuned on them. *GRAPPA*'s parameters are already appropriately chosen and do not require tuning. *NC-PDNet's* Neither. We can tune the hyperparameters of each of the other methods by runing the following commands:
+- For WCRR: ```python hyperparameters_tuning/tune_wcrr.py --root my_root_directory```
+- For DPIR: ```python hyperparameters_tuning/tune_pnp_drunet.py --root my_root_directory```
 - For TV: ```python hyperparameters_tuning/tune_tv.py --root my_root_directory```
-- For $l1$-wavelets: ```python hyperparameters_tuning/tune_l1_wavelets.py --root my_root_directory```
+- For $l1$-wavelet: ```python hyperparameters_tuning/tune_l1_wavelets.py --root my_root_directory```
 
-## 5. Reconstructions (This reproduces the results in the paper!)
-The reconstructions with each method are performed on 30 testing volumes (among which the first 15 12-coil volumes and the first 15 32-coil volumes according to the alphabetical order of the volume file names) by running the following commands for coil = 12 and then for coil = 32:
-- With WCRR (rotation-invariant version): ```python reconstructions.py --method "wcrr" --coil coil --root my_root_directory```
-- With WCRR (non-rotation-invariant version): ```python reconstructions.py --method "wcrr_no_rot" --coil coil --root my_root_directory```
-- With PnP-DRUNet: ```python reconstructions.py --method "drunet" --coil coil --root my_root_directory```
+### 5. Reconstructions (This reproduces the results on the retrospectively simulated acquisitions in the paper!)
+The reconstructions with each method are performed on 20 testing volumes (among which the first 10 12-coil volumes and the first 10 32-coil volumes according to the alphabetical order of the volume file names) by running the following commands for coil = 12 and then for coil = 32:
+- With WCRR: ```python reconstructions.py --method "wcrr" --coil coil --root my_root_directory```
+- With NC-PDNet: ```python reconstructions.py --method "ncpdnet" --coil coil --root my_root_directory```
+- With DPIR: ```python reconstructions.py --method "drunet" --coil coil --root my_root_directory```
 - With TV: ```python reconstructions.py --method "tv" --coil coil --root my_root_directory```
-- With $l_1$-wavelets: ```python reconstructions.py --method "wv" --coil coil --root my_root_directory```
-- GRAPPA reconstructions are automatically performed whenever one of the above reconstructions is launched, and the results are saved in wandb.
+- With $l_1$-wavelet: ```python reconstructions.py --method "wv" --coil coil --root my_root_directory```
+- GRAPPA reconstructions are automatically performed whenever one of the above reconstructions is launched, and the results are saved with wandb.
 
-## 6. wandb routine to fetch the saved reconstruction results & visualize some reconstructions
-The notebook **reconstruction_results.ipynb** contains the wandb routine to fetch the saved reconstruction metrics, and also the routine to visualize some saved reconstructions. And the notebook **reconstruction_examples.ipynb** shows how to reconstruct a single MRI volume with each method.
+### 6. wandb routine to fetch the saved reconstruction results & visualize some reconstructions
+The notebook **reconstruction_results.ipynb** contains the wandb routine to fetch the saved reconstruction metrics, and also the routine to visualize some saved reconstructions. And the notebook **reconstruction_example.ipynb** shows how to reconstruct a single MRI volume with WCRR.
