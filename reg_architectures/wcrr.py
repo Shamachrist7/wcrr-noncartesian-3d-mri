@@ -166,11 +166,11 @@ class WCRR3D(Prior):
         return out
 
     def grad(self, x, sigma): # sigma --> 1D tensor with size equals the batch size of x
-    
+
+        beta_sp = torch.exp(self.beta)
+        scale_sp = self.scaling(sigma)
+        
         def grad_R(x):
-            beta_sp = torch.exp(self.beta)
-            scale_sp = self.scaling(sigma)
-    
             g = self.conv(x) * scale_sp
             g = self.grad_smooth_l1(beta_sp * g) - self.grad_smooth_l1(g) * self.weak_cvx
             g = g / scale_sp
@@ -183,11 +183,11 @@ class WCRR3D(Prior):
         return grad_cost/4 if self.rotations else grad_R(x)
 
     def g(self, x, sigma): # sigma --> 1D tensor with size equals the batch size of x
-    
+
+        beta_sp = torch.exp(self.beta)
+        scale_sp = self.scaling(sigma)
+        
         def R(x):
-            beta_sp = torch.exp(self.beta)
-            scale_sp = self.scaling(sigma)
-    
             r = self.conv(x) * scale_sp
             r = self.smooth_l1(beta_sp * r) / beta_sp - self.smooth_l1(r) * self.weak_cvx
             r = r / scale_sp**2
@@ -206,6 +206,74 @@ class WCRR3D(Prior):
 
 
 
+class WCRR3D_eval:
+    def __init__(
+        self,
+        conv_lip,
+        beta,
+        scaling_sigma,
+        filters,
+        effective_filters=False,
+        rotations=True,
+        weak_cvx=1.0,
+    ):
+        super(WCRR3D_eval, self).__init__()
+        
+        self.filters = filters
+        self.scaling_sigma = scaling_sigma
+        self.beta = beta
+        self.lip = torch.sqrt(conv_lip)
+        self.rotations = rotations
+        self.weak_cvx = weak_cvx
+        self.effective_filters = effective_filters
+
+    def smooth_l1(self, x):
+        return torch.clip(x**2, 0.0, 1.0) / 2 + torch.clip(torch.abs(x), 1.0) - 1.0
+
+    def grad_smooth_l1(self, x):
+        return torch.clip(x, -1.0, 1.0)
+
+    def conv(self, x):
+        if self.effective_filters:
+            return F.conv3d(x / self.lip, self.filters, bias=None, stride=1, padding=3)
+        return self.filters(x / self.lip)
+
+    def conv_transpose(self, x):
+        if self.effective_filters:
+            return F.conv_transpose3d(x / self.lip, self.filters, bias=None, stride=1, padding=3)
+        out = x / self.lip
+        for filt in reversed(self.filters):
+            out = F.conv_transpose3d(out, filt.weight, padding=filt.padding)
+        return out
+
+    def grad(self, x, sigma): # sigma --> 1D tensor with size equals the batch size of x
+        
+        def grad_R(x):
+            g = self.conv(x) * self.scaling_sigma
+            g = self.grad_smooth_l1(self.beta * g) - self.grad_smooth_l1(g) * self.weak_cvx
+            g = g / self.scaling_sigma
+            return self.conv_transpose(g)
+        if self.rotations:
+            x_DH = torch.rot90(x, k=1, dims=(-3,-2))
+            x_DW = torch.rot90(x, k=1, dims=(-3,-1))
+            x_HW = torch.rot90(x, k=1, dims=(-2,-1))
+            grad_cost = grad_R(x) + torch.rot90(grad_R(x_DH), k=-1, dims=(-3,-2)) + torch.rot90(grad_R(x_DW), k=-1, dims=(-3,-1)) + torch.rot90(grad_R(x_HW), k=-1, dims=(-2,-1))
+        return grad_cost/4 if self.rotations else grad_R(x)
+
+    def g(self, x, sigma): # sigma --> 1D tensor with size equals the batch size of x
+        
+        def R(x):
+            r = self.conv(x) * self.scaling_sigma
+            r = self.smooth_l1(self.beta * r) / self.beta - self.smooth_l1(r) * self.weak_cvx
+            r = r / self.scaling_sigma**2
+            return r.sum(dim=(1, 2, 3, 4))
+        if self.rotations:
+            x_DH = torch.rot90(x, k=1, dims=(-3,-2))
+            x_DW = torch.rot90(x, k=1, dims=(-3,-1))
+            x_HW = torch.rot90(x, k=1, dims=(-2,-1))
+            cost = R(x) + R(x_DH) + R(x_DW) + R(x_HW)
+        return cost/4 if self.rotations else R(x)
+    
 
 
 
