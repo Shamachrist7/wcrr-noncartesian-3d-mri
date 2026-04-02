@@ -11,14 +11,11 @@ import cupy as cp
 from mrinufft import get_operator
 from mrinufft.io import read_trajectory
 from baselines.grappa_reconstruction import do_grappa_and_append_data
-from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, sum_of_squares, _load_volumes, PSNR_MRI, L2_precon
-from deepinv.optim.prior import TVPrior
+from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, L2_precon, compute_mask, masked_psnr
 from baselines.TV import PDHG_TV
-import deepinv as dinv
 from mrinufft.extras.smaps import get_smaps
 import gc
 import os
-import time
 import argparse
 import warnings
 #os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -41,7 +38,7 @@ noise_level = 2e-3
 data_fidelity = L2_precon(weights=torch.tensor(1.0))
 
 # Load trajectory and get the k-space locations
-traj, traj_params = read_trajectory("trajectory.bin", dwell_time=0.01/2)
+traj, traj_params = read_trajectory("gs.bin", dwell_time=0.01/2)
 traj = traj.copy()
 traj[traj < -0.5] = -0.5
 traj[traj > 0.5] = 0.5
@@ -56,8 +53,8 @@ volumes = ['e14120s11_P66048.7.h5.npy',
            'e15652s14_P51712.7.h5.npy']
            
 # Parameters of the PDHG solver
-max_iter = 50
-tol = 1e-3  # tolerance for the relative error (stopping criterion)
+max_iter = 500
+tol = 5e-4  # tolerance for the relative error (stopping criterion)
 
 # Calgary volumes are under the format [D,H,W,coils], and we convert to [coils,H,W,D] so that NUFFT works
 x_0 = torch.from_numpy(scaler * np.moveaxis(np.load(os.path.join(root, volumes[0])),-1, 0)) #[coils,H,W,D] and complex dtype
@@ -222,6 +219,9 @@ x_gt_4 = torch.sum(torch.conj(smaps_4) * x_4, axis=0)
 x_gt_ri_4 = complex_to_ri(x_gt_4)
 reference_4 = torch.abs(x_gt_4) # Magnitude
 
+# Compute the operator norm of the forward operator, which is needed to set the stepsize of PDHG. We compute it with the power method, which consists in applying the forward and adjoint operators iteratively on a random vector until convergence. The value returned is an upper bound of the true operator norm, which guarantees convergence of PDHG.
+opnorm = physics_0.compute_sqnorm(torch.randn_like(x_gt_ri_0, device=device), max_iter=20).item()
+
 del F_raw, Smaps_0, Smaps_1, Smaps_2, Smaps_3, Smaps_4, nufft_grappa_0, nufft_grappa_1, nufft_grappa_2, nufft_grappa_3, nufft_grappa_4, E_est_0, E_est_1, E_est_2, E_est_3, E_est_4, new_kspace_loc_0, new_kspace_loc_1, new_kspace_loc_2, new_kspace_loc_3, new_kspace_loc_4, y_grappa_0, y_grappa_1, y_grappa_2, y_grappa_3, y_grappa_4, smaps_0, smaps_1, smaps_2, smaps_3, smaps_4, x_gt_0, x_gt_1, x_gt_2, x_gt_3, x_gt_4, x_gt_ri_0, x_gt_ri_1, x_gt_ri_2, x_gt_ri_3, x_gt_ri_4, x_0, x_1, x_2, x_3, x_4
 gc.collect()
 torch.cuda.empty_cache()
@@ -233,13 +233,13 @@ cp.get_default_pinned_memory_pool().free_all_blocks()
 k = 0
 best_psnr = -float("inf")
 
-for lmbd in [0.1, 0.2, 0.3, 0.4, 0.5]:
+for lmbd in [1e-5, 5e-5, 1e-4, 2e-4, 3e-4]:
     
     # Define the model
     model = PDHG_TV(
         lambda_reg=lmbd,
         max_iter=max_iter,
-        lipschitz= 1.0,
+        lipschitz= opnorm,
         data_fidelity=data_fidelity,
         stopping_criterion=tol,
     )
@@ -250,14 +250,16 @@ for lmbd in [0.1, 0.2, 0.3, 0.4, 0.5]:
         with torch.no_grad():
             x_rec_ri = model(y.to(device), physics, init=dcp_grappa_ri.to(device), x_gt=None, compute_metrics=False).detach().cpu()
         recon  = torch.abs(ri_to_complex(x_rec_ri)) # Magnitude of the reconstruction
-        avg_psnr += psnr(recon, reference)
+        mask = compute_mask(reference.numpy())
+        avg_psnr += masked_psnr(reference.numpy(), recon.numpy(), mask)
     avg_psnr /= len(volumes)
     if avg_psnr > best_psnr:
         best_psnr = avg_psnr
         lmbd_best = lmbd
         k_best = k
-    print(f"Trial {k}: psnr {avg_psnr.item():.2f} with value lmbd={lmbd}")
-    print(f"Best trial so far {k_best}, with value lmbd={lmbd_best} and PSNR={best_psnr.item():.2f}")
+    print(f"Trial {k}: psnr {avg_psnr:.2f} with value lmbd={lmbd}")
+    print(f"Best trial so far {k_best}, with value lmbd={lmbd_best} and PSNR={best_psnr:.2f}")
     k += 1
 
-print(f"Overall best trial {k_best}, with value lmbd={lmbd_best} and PSNR={best_psnr.item():.2f}")
+print(f"Overall best trial {k_best}, with value lmbd={lmbd_best} and PSNR={best_psnr:.2f}")
+
