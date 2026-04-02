@@ -1,11 +1,9 @@
 import torch
 import numpy as np
 from typing import Callable, Tuple
-import inspect
 from torch.amp import autocast
 from tqdm import tqdm
-from utils import ri_to_complex
-from deepinv.loss.metric import PSNR
+from utils import ri_to_complex, compute_mask, masked_psnr
 
 # Implements Algorithm 4 (non-monotone APG) from:
 # Huan Li, Zhouchen Lin
@@ -58,7 +56,8 @@ def nmAPG(
     energy_history = []
     psnr_history = []
     if x_gt is not None:
-        psnr_history.append(PSNR(max_pixel=None)(torch.abs(ri_to_complex(x0)).unsqueeze(0).cpu(), torch.abs(ri_to_complex(x_gt)).unsqueeze(0).cpu()).item())
+        mask = compute_mask(torch.abs(ri_to_complex(x_gt)).cpu().numpy())
+        psnr_history.append(masked_psnr(torch.abs(ri_to_complex(x_gt)).cpu().numpy(), torch.abs(ri_to_complex(x0)).cpu().numpy(), mask))
     idx = torch.arange(0, x.shape[0], device=x.device)
 
     grad = torch.zeros_like(x)
@@ -153,7 +152,7 @@ def nmAPG(
         
         # Save psnr history
         if x_gt is not None:
-            psnr_history.append(PSNR(max_pixel=None)(torch.abs(ri_to_complex(x)).unsqueeze(0).cpu(), torch.abs(ri_to_complex(x_gt)).unsqueeze(0).cpu()).item())
+            psnr_history.append(masked_psnr(torch.abs(ri_to_complex(x_gt)).cpu().numpy(), torch.abs(ri_to_complex(x)).cpu().numpy(), mask))
 
         # Residuals
         if i > 0:
@@ -251,4 +250,6 @@ def reconstruct_nmAPG(
     if return_stats:
         return rec, stats
     return rec
+
+
 
