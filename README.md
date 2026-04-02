@@ -3,7 +3,7 @@
 <table align="center">
   <tr>
     <td align="center">
-      <img src="reg_architectures/regularizer_architecture.png" width="450"><br>
+      <img src="reg_architecture/regularizer_architecture.png" width="450"><br>
       <b>(a) Regularizer Architecture</b>
     </td>
     <td align="center">
@@ -29,7 +29,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip check
 ```
-Note that a CUDA 12 machine is necessary. Previous versions might encounter some issues.
+Note that at least a CUDA 12 machine is necessary. Previous versions might encounter some issues.
 
 ### b. Preliminaries
 Before runing anything, sign up to Weights & Biases (If you don't have an account yet) through [wandb.ai/authorize](http://wandb.ai/signup). Once logged in into your account, go to *Settings → API keys*, then copy your **wandb API Key**. Finally in your Terminal (environment in which you are going to run everything), run ```wandb login```. You will be asked to provide your API Key; Paste it in there and validate. Your **wandb** automatic monitor of all the runs is all set.
