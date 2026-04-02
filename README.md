@@ -4,12 +4,7 @@
 
 This repository contains the official PyTorch implementation of **WCRR (Weakly Convex Ridge Regularizer)** — a rotation-invariant regularizer integrated in a variational framework for accelerated 3D non-Cartesian MRI reconstruction.
 
-📄 **Paper**: [Weakly Convex Ridge Regularization for 3D Non-Cartesian MRI
-  Reconstruction (arXiv:2603.27158)](http://arxiv.org/abs/2603.27158)  
-
----
-
-## 🔧 Setup
+📄 **Paper**: [Weakly Convex Ridge Regularization for 3D Non-Cartesian MRI Reconstruction (arXiv:2603.27158)](http://arxiv.org/abs/2603.27158)  
 
 <table align="center">
   <tr>
@@ -24,7 +19,11 @@ This repository contains the official PyTorch implementation of **WCRR (Weakly C
   </tr>
 </table>
 
-## 1. Installations & Preliminaries
+---
+
+## 🔧 Setup
+
+### 1. Installations & Preliminaries
 
 To get started, clone the repository; And in the terminal you are going to run everything, set upstreamly:
 ```
@@ -32,7 +31,7 @@ export TF_ENABLE_ONEDNN_OPTS=0
 export TF_CPP_MIN_LOG_LEVEL=3
 ```
 
-### a. Installations
+#### a. Installations
 The code relies mainly on [DeepInverse](https://deepinv.github.io), [MRI-NUFFT](https://mind-inria.github.io/mri-nufft/) and [GGRAPPA](https://github.com/mind-inria/ggrappa). [Weights & Biases](https://docs.wandb.ai/models/quickstart#command-line) is used to monitor, visualize and save the results of the different runs. All the necessary dependencies can be installed by executing:
 
 ```
@@ -42,11 +41,11 @@ python -m pip check
 ```
 Note that at least a CUDA 12 machine is necessary. Previous versions might encounter some issues.
 
-### b. Preliminaries
+#### b. Preliminaries
 Before runing anything, sign up to Weights & Biases (If you don't have an account yet) through [wandb.ai/authorize](http://wandb.ai/signup). Once logged in into your account, go to *Settings → API keys*, then copy your **wandb API Key**. Finally in your Terminal (environment in which you are going to run everything), run ```wandb login```. You will be asked to provide your API Key; Paste it in there and validate. Your **wandb** automatic monitor of all the runs is all set.
 
 
-## 2. Data Processing
+### 2. Data Processing
 The Calgary Campinas Train & Val data consist of 67 fully-sampled 12-coil k-space volumes saved as **.h5** files. First of all, organize them in a root directory that we will call **my_root_directory**, containing two folders named exactly **Train** (which contains the 47 .h5 training k-space volumes) and **Val** (which contains the 20 .h5 validation k-space volumes). For training purposes, we need the True image volumes (that we can compute by performing a 3D virtual coil combination (vcc) of the image domain versions of those kspaces). To get them, just run:
 ```
 python data_processing/preprocess_calgary.py --root my_root_directory
