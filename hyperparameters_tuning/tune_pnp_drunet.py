@@ -11,7 +11,7 @@ import cupy as cp
 from mrinufft import get_operator
 from mrinufft.io import read_trajectory
 from baselines.grappa_reconstruction import do_grappa_and_append_data
-from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, L2_precon, get_DPIR_params
+from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, L2_precon, get_DPIR_params, compute_mask, masked_psnr
 from deepinv.optim.prior import PnP
 from deepinv.optim import HQS
 from baselines.drunet.drunet_base import DRUNet
@@ -42,7 +42,7 @@ noise_level = 2e-3
 data_fidelity = L2_precon(weights=torch.tensor(1.0))
 
 # Load trajectory and get the k-space locations
-traj, traj_params = read_trajectory("trajectory.bin", dwell_time=0.01/2)
+traj, traj_params = read_trajectory("gs.bin", dwell_time=0.01/2)
 traj = traj.copy()
 traj[traj < -0.5] = -0.5
 traj[traj > 0.5] = 0.5
@@ -228,7 +228,7 @@ x_gt_4 = torch.sum(torch.conj(smaps_4) * x_4, axis=0)
 x_gt_ri_4 = complex_to_ri(x_gt_4)
 reference_4 = torch.abs(x_gt_4) # Magnitude
 
-del F_raw, Smaps_0, Smaps_1, Smaps_2, Smaps_3, Smaps_4, nufft_grappa_0, nufft_grappa_1, nufft_grappa_2, nufft_grappa_3, nufft_grappa_4, E_est_0, E_est_1, E_est_2, E_est_3, E_est_4, new_kspace_loc_0, new_kspace_loc_1, new_kspace_loc_2, new_kspace_loc_3, new_kspace_loc_4, y_grappa_0, y_grappa_1, y_grappa_2, y_grappa_3, y_grappa_4, smaps_0, smaps_1, smaps_2, smaps_3, smaps_4, x_gt_0, x_gt_1, x_gt_2, x_gt_3, x_gt_4, x_gt_ri_0, x_gt_ri_1, x_gt_ri_2, x_gt_ri_3, x_gt_ri_4, x_0, x_1, x_2, x_3, x_4
+del F_raw, Smaps_0#, Smaps_1, Smaps_2, Smaps_3, Smaps_4, nufft_grappa_0, nufft_grappa_1, nufft_grappa_2, nufft_grappa_3, nufft_grappa_4, E_est_0, E_est_1, E_est_2, E_est_3, E_est_4, new_kspace_loc_0, new_kspace_loc_1, new_kspace_loc_2, new_kspace_loc_3, new_kspace_loc_4, y_grappa_0, y_grappa_1, y_grappa_2, y_grappa_3, y_grappa_4, smaps_0, smaps_1, smaps_2, smaps_3, smaps_4, x_gt_0, x_gt_1, x_gt_2, x_gt_3, x_gt_4, x_gt_ri_0, x_gt_ri_1, x_gt_ri_2, x_gt_ri_3, x_gt_ri_4, x_0, x_1, x_2, x_3, x_4
 gc.collect()
 torch.cuda.empty_cache()
 torch.cuda.ipc_collect()
@@ -239,10 +239,10 @@ cp.get_default_pinned_memory_pool().free_all_blocks()
 k = 0
 best_psnr = -float("inf")
 
-num_iter = 3 #5#4#3#2 #1
-for sigma_init in [0.04]:#, 0.02, 0.03, 0.04, 0.05]: #0.01
-    for lmbd in [3e-3, 4e-3, 5e-3, 6e-3, 7e-3, 8e-3]:#2e-3, 1e-3]:
-        sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=num_iter, sigma_init=sigma_init, lmbd=lmbd, device=device)
+num_iter = 8
+for sigma in [2e-3]: # sigma = 2e-3 was found to be the best value, this is consistent with the DPIR theory and the fact that our noise level is 2e-3.
+    for lmbd in [5.0, 5.5, 6.0, 6.5, 4.5, 4.0, 3.5]: # 0.1, 0.2, 0.3, 0.4, 0.5
+        sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=num_iter, sigma=sigma, lmbd=lmbd)
         model = HQS(
                 prior=prior,
                 data_fidelity=data_fidelity,
@@ -258,15 +258,17 @@ for sigma_init in [0.04]:#, 0.02, 0.03, 0.04, 0.05]: #0.01
             with torch.no_grad():
                 x_rec_ri = model(y.to(device), physics, init=(dcp_grappa_ri.to(device), dcp_grappa_ri.to(device)), x_gt=None, compute_metrics=False).detach().cpu()
             recon  = torch.abs(ri_to_complex(x_rec_ri)) # Magnitude of the reconstruction
-            avg_psnr += psnr(recon, reference)
+            mask = compute_mask(reference.numpy())
+            avg_psnr += masked_psnr(reference.numpy(), recon.numpy(), mask)
         avg_psnr /= len(volumes)
         if avg_psnr > best_psnr:
             best_psnr = avg_psnr
-            sigma_best = sigma_init
+            sigma_best = sigma
             lmbd_best = lmbd
             k_best = k
-        print(f"Trial {k}: psnr {avg_psnr.item():.2f} with values (sigma_init={sigma_init}, lmbd={lmbd}).")
-        print(f"Best trial so far {k_best}, with values (sigma={sigma_best}, lmbd={lmbd_best}) and PSNR={best_psnr.item():.2f}")
+        print(f"Trial {k}: psnr {avg_psnr:.2f} with values (sigma_init={sigma}, lmbd={lmbd}).")
+        print(f"Best trial so far {k_best}, with values (sigma={sigma_best}, lmbd={lmbd_best}) and PSNR={best_psnr:.2f}")
         k += 1
 
-print(f"Overall best trial {k_best}, with values (sigma_init={sigma_best}, lmbd={lmbd_best}) and PSNR={best_psnr.item():.2f}")
+print(f"Overall best trial {k_best}, with values (sigma_init={sigma_best}, lmbd={lmbd_best}) and PSNR={best_psnr:.2f}")
+
