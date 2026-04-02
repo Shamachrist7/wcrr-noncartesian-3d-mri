@@ -11,8 +11,8 @@ import cupy as cp
 from mrinufft import get_operator
 from mrinufft.io import read_trajectory
 from baselines.grappa_reconstruction import do_grappa_and_append_data
-from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, sum_of_squares, _load_volumes, PSNR_MRI, L2_precon
-from reg_architectures import WCRR3D
+from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, L2_precon, compute_mask, masked_psnr
+from reg_architecture import WCRR3D
 from evaluation.nmAPG3d_evaluation import reconstruct_nmAPG
 import deepinv as dinv
 from mrinufft.extras.smaps import get_smaps
@@ -42,7 +42,7 @@ noise_level = 2e-3
 data_fidelity = L2_precon(weights=torch.tensor(1.0))
 
 # Load trajectory and get the k-space locations
-traj, traj_params = read_trajectory("trajectory.bin", dwell_time=0.01/2)
+traj, traj_params = read_trajectory("gs.bin", dwell_time=0.01/2)
 traj = traj.copy()
 traj[traj < -0.5] = -0.5
 traj[traj > 0.5] = 0.5
@@ -59,7 +59,7 @@ volumes = ['e14120s11_P66048.7.h5.npy',
 # Load the regularizer weights
 if regularizer_name=="WCRR":
     regularizer = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=True).to(device)
-    pretrained = "weights/bilevel_Denoising/WCRR_bilevel_IFT_ckpt_100.pt"
+    pretrained = "weights/bilevel_Denoising/WCRR_500_bilevel_IFT_ckpt_500.pt"
 elif regularizer_name=="WCRR_no_rot":
     regularizer = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=False).to(device)
     pretrained = "weights/bilevel_Denoising/WCRR_no_rotations_bilevel_IFT_ckpt_100.pt"
@@ -70,8 +70,8 @@ regularizer.eval()
 
 # Parameters of the nmAPG solver
 step_size = 1e-1
-max_iter = 20
-tol = 1e-2  # tolerance for the relative error (stopping criterion)
+max_iter = 500
+tol = 5e-3  # tolerance for the relative error (stopping criterion)
 
 # Calgary volumes are under the format [D,H,W,coils], and we convert to [coils,H,W,D] so that NUFFT works
 x_0 = torch.from_numpy(scaler * np.moveaxis(np.load(os.path.join(root, volumes[0])),-1, 0)) #[coils,H,W,D] and complex dtype
@@ -246,36 +246,38 @@ cp.get_default_pinned_memory_pool().free_all_blocks()
 # Optimization
 k = 0
 best_psnr = -float("inf")
-for lmbd in [1e-3, 5e-3, 1e-2, 5e-2, 1e-1]:
-    for sigma in [0.08, 0.07, 0.06, 0.05, 0.04]:
-        sigma = torch.tensor([sigma], device=device)
 
-        with torch.no_grad():
-            avg_psnr = 0.0
-            for y, physics, dcp_grappa_ri, reference in [(y_0, physics_0, dcp_grappa_ri_0, reference_0), (y_1, physics_1, dcp_grappa_ri_1, reference_1), (y_2, physics_2, dcp_grappa_ri_2, reference_2), (y_3, physics_3, dcp_grappa_ri_3, reference_3), (y_4, physics_4, dcp_grappa_ri_4, reference_4)]:
-                x_rec_ri = reconstruct_nmAPG(
-       	                    sigma,
-    	                    y.to(device),
-    	                    physics,
-    	                    data_fidelity,
-    	                    regularizer,
-    	                    lmbd,
-    	                    step_size,
-    	                    max_iter,
-    	                    tol,
-    	                    verbose=True,
-    	                    x_init=dcp_grappa_ri.to(device),
-    	                    return_stats=False).detach().cpu()
-                recon  = torch.abs(ri_to_complex(x_rec_ri)) # Magnitude of the reconstruction
-                avg_psnr += psnr(recon, reference)
-            avg_psnr /= len(volumes)
-            if avg_psnr > best_psnr:
-                best_psnr = avg_psnr
-                sigma_best = sigma
-                lmbd_best = lmbd
-                k_best = k
-            print(f"Trial {k}: psnr {avg_psnr.item():.2f} with values (sigma={sigma.item()}, lmbd={lmbd}).")
-            print(f"Best trial so far {k_best}, with values (sigma={sigma_best.item()}, lmbd={lmbd_best}) and PSNR={best_psnr.item():.2f}")
-            k += 1
+sigma = 0.03 # We set sigma to a fixed value, as we observed that it had little influence on the results. We tune lmbd which is the weight of the regularizer, and has a much bigger influence on the results.
+sigma = torch.tensor([sigma], device=device)
+for lmbd in [0.001, 0.005, 0.01, 0.05, 0.1]:
 
-print(f"Overall best trial so far {k_best}, with values (sigma={sigma_best.item()}, lmbd={lmbd_best}) and PSNR={best_psnr.item():.2f}")
+    with torch.no_grad():
+        avg_psnr = 0.0
+        for y, physics, dcp_grappa_ri, reference in [(y_0, physics_0, dcp_grappa_ri_0, reference_0), (y_1, physics_1, dcp_grappa_ri_1, reference_1), (y_2, physics_2, dcp_grappa_ri_2, reference_2), (y_3, physics_3, dcp_grappa_ri_3, reference_3), (y_4, physics_4, dcp_grappa_ri_4, reference_4)]:
+            x_rec_ri = reconstruct_nmAPG(
+                        sigma,
+                        y.to(device),
+                        physics,
+                        data_fidelity,
+                        regularizer,
+                        lmbd,
+                        step_size,
+                        max_iter,
+                        tol,
+                        verbose=True,
+                        x_init=dcp_grappa_ri.to(device),
+                        return_stats=False).detach().cpu()
+            recon  = torch.abs(ri_to_complex(x_rec_ri)) # Magnitude of the reconstruction
+            mask = compute_mask(reference.numpy())
+            avg_psnr += masked_psnr(reference.numpy(), recon.numpy(), mask)
+        avg_psnr /= len(volumes)
+        if avg_psnr > best_psnr:
+            best_psnr = avg_psnr
+            sigma_best = sigma
+            lmbd_best = lmbd
+            k_best = k
+        print(f"Trial {k}: psnr {avg_psnr:.2f} with values (sigma={sigma.item()}, lmbd={lmbd}).")
+        print(f"Best trial so far {k_best}, with values (sigma={sigma_best.item()}, lmbd={lmbd_best}) and PSNR={best_psnr:.2f}")
+        k += 1
+
+print(f"Overall best trial so far {k_best}, with values (sigma={sigma_best.item()}, lmbd={lmbd_best}) and PSNR={best_psnr:.2f}")
