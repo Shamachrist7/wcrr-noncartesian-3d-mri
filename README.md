@@ -88,3 +88,38 @@ The reconstructions with each method are performed on 20 testing volumes (among 
 
 ### 6. wandb routine to fetch the saved reconstruction results & visualize some reconstructions
 The notebook **reconstruction_results.ipynb** contains the wandb routine to fetch the saved reconstruction metrics, and also the routine to visualize some saved reconstructions. And the notebook **reconstruction_example.ipynb** shows how to reconstruct a single MRI volume with WCRR.
+
+---
+
+## ✉️ Questions?
+
+If you have any questions or feedback, feel free to reach out:
+
+📧 **Email**: [shamachrist7@gmail.com](mailto:shamachrist7@gmail.com)
+
+---
+
+## 📄 License
+
+This project is released under the MIT License.
+
+---
+
+## 📫 Citation
+
+If you use this code, please consider citing our paper:
+
+```
+@misc{wache2026weaklyconvexridgeregularization,
+      title={Weakly Convex Ridge Regularization for 3D Non-Cartesian MRI Reconstruction}, 
+      author={German Shâma Wache and Chaithya G R and Asma Tanabene and Sebastian Neumayer},
+      year={2026},
+      eprint={2603.27158},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2603.27158}, 
+}
+```
+
+
+
