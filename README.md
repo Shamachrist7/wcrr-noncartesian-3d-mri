@@ -64,7 +64,7 @@ On the retrospectively simulated accelerated acquisitions, we compare *WCRR* to 
 - Plug-and-Play: DPIR coupled with a 3D DRUNet denoiser
 - NC-PDNet unrolled network
 
-Out of all of them, our WCRR, the DRUNet and NC-PDNet are learned. The trained weights for WCRR are available in the **weights/bilevel_denoising** directory. Those of DRUNet and NC-PDNet, on the other hand, were too heavy to be uploaded here. However, you can download them here 👉 [![Hugging Face](https://huggingface.co/datasets/huggingface/brand-assets/blob/main/hf-logo-with-title.svg)](https://huggingface.co/deepinv/drunet_3d_denoise_complex/tree/main) 👈 and here https://tuc.cloud/index.php/s/BbgR3KTKmQqpEiQ , then put them in the directories **weights/drunet** and **weights/ncpdnet** respectively before moving on with what follows below.
+Out of all of them, our WCRR, the DRUNet and NC-PDNet are learned. The trained weights for WCRR are available in the **weights/bilevel_denoising** directory. Those of DRUNet and NC-PDNet, on the other hand, were too heavy to be uploaded here. However, you can download them here 👉 [drunet](https://huggingface.co/deepinv/drunet_3d_denoise_complex/tree/main) 👈 and here 👉 [ncpdnet](https://tuc.cloud/index.php/s/BbgR3KTKmQqpEiQ) 👈, then put them in the directories **weights/drunet** and **weights/ncpdnet** respectively before moving on with what follows below.
 
 In case you wish to retrain WCRR (And thus reproduce its weights by yourself), just run: ```python training_wcrr.py --root my_root_directory```
 
@@ -78,11 +78,12 @@ Five specific validation volumes are chosen, and all the hyperparameters for eac
 
 ### 5. Reconstructions (This reproduces the results on the retrospectively simulated acquisitions in the paper!)
 The reconstructions with each method are performed on 20 testing volumes (among which the first 10 12-coil volumes and the first 10 32-coil volumes according to the alphabetical order of the volume file names) by running the following commands for coil = 12 and then for coil = 32:
-- With WCRR: ```python reconstructions.py --method "wcrr" --coil coil --root my_root_directory```
-- With NC-PDNet: ```python reconstructions.py --method "ncpdnet" --coil coil --root my_root_directory```
-- With DPIR: ```python reconstructions.py --method "drunet" --coil coil --root my_root_directory```
-- With TV: ```python reconstructions.py --method "tv" --coil coil --root my_root_directory```
-- With $l_1$-wavelet: ```python reconstructions.py --method "wv" --coil coil --root my_root_directory```
+- Preliminarily to precompute the coil sensitivity maps for memory efficiency: ```python reconstructions.py --smaps_precomputation True --coil coil --root my_root_directory```
+- Reconstructions with WCRR: ```python reconstructions.py --method "wcrr" --coil coil --root my_root_directory```
+- Reconstructions with NC-PDNet: ```python reconstructions.py --method "ncpdnet" --coil coil --root my_root_directory```
+- Reconstructions with DPIR: ```python reconstructions.py --method "drunet" --coil coil --root my_root_directory```
+- Reconstructions with TV: ```python reconstructions.py --method "tv" --coil coil --root my_root_directory```
+- Reconstructions with $l_1$-wavelet: ```python reconstructions.py --method "wv" --coil coil --root my_root_directory```
 - GRAPPA reconstructions are automatically performed whenever one of the above reconstructions is launched, and the results are saved with wandb.
 
 ### 6. wandb routine to fetch the saved reconstruction results & visualize some reconstructions
