@@ -64,7 +64,7 @@ On the retrospectively simulated accelerated acquisitions, we compare *WCRR* to 
 - Plug-and-Play: DPIR coupled with a 3D DRUNet denoiser
 - NC-PDNet unrolled network
 
-Out of all of them, our WCRR, NC-PDNet and the DRUNet are learned. The trained weights for WCRR and NC-PDNet are available in the **weights** folder. DRUNet's weights, on the other hand, were too heavy to be uploaded here. However, you can download them here on hugging face 👉 [![Hugging Face]((https://huggingface.co/datasets/huggingface/brand-assets/blob/main/hf-logo-with-title.svg))]([https://huggingface.co](https://huggingface.co/deepinv/drunet_3d_denoise_complex/tree/main)) 👈 and  put them in the directory **weights/drunet** before moving on with what follows below.
+Out of all of them, our WCRR, the DRUNet and NC-PDNet are learned. The trained weights for WCRR are available in the **weights/bilevel_denoising** directory. Those of DRUNet and NC-PDNet, on the other hand, were too heavy to be uploaded here. However, you can download them here 👉 [![Hugging Face](https://huggingface.co/datasets/huggingface/brand-assets/blob/main/hf-logo-with-title.svg)](https://huggingface.co/deepinv/drunet_3d_denoise_complex/tree/main) 👈 and here https://tuc.cloud/index.php/s/BbgR3KTKmQqpEiQ , then put them in the directories **weights/drunet** and **weights/ncpdnet** respectively before moving on with what follows below.
 
 In case you wish to retrain WCRR (And thus reproduce its weights by yourself), just run: ```python training_wcrr.py --root my_root_directory```
 
