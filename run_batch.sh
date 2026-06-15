@@ -19,7 +19,7 @@
 #SBATCH --output=%x_%A_%a.out # nom du fichier de sortie
 #SBATCH --error=%x_%A_%a.out  # nom du fichier d'erreur (ici commun avec la sortie)
 #SBATCH --wckey=submitit
-#SBATCH --array=0-3
+#SBATCH --array=0-1
 
 #SBATCH -L fs_scratch,fs_work
 
@@ -38,10 +38,10 @@ OUTDIR=$SCRATCH/Benchmark
 
 mkdir -p $OUTDIR
 group=1
-folder="output/retune3x2"
-for method in wcrr wv tv drunet 
+folder="output/wcrr_retune"
+for method in wcrr  
 do
-	for vid in 0  
+	for vid in 0 1 
 	do
 		if [ $((ctr/group)) -eq $SLURM_ARRAY_TASK_ID ]
 		then
