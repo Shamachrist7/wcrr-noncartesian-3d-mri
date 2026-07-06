@@ -90,13 +90,17 @@ def complex_to_ri(x_c: torch.Tensor) -> torch.Tensor:
 # -----------------------------------
 def psnr(pred, gt):
     mask = compute_mask(gt.numpy())
-    gt_norm, pred_norm = normalize(gt.numpy(), pred.numpy(), "zscore")
-    return masked_psnr(gt_norm, pred_norm, mask)
+    return masked_psnr(gt.numpy(), pred.numpy(), mask)
 
 def ssim(pred, gt):
     mask = compute_mask(gt.numpy())
-    gt_norm, pred_norm = normalize(gt.numpy(), pred.numpy(), "zscore")
-    return masked_ssim(gt_norm, pred_norm, mask)
+    return masked_ssim(gt.numpy(), pred.numpy(), mask)
+
+def nmse(pred, gt):
+    gt_np = gt.numpy()
+    pred_np = pred.numpy()
+    mask = compute_mask(gt_np)
+    return masked_nmse(gt_np, pred_np, mask)
 
 # helper to get the psnr history  during reconstructions from start to end
 class PSNR_MRI(Metric):
@@ -124,7 +128,7 @@ class MRINUFFTPhysicsRI(LinearPhysics):
         # [1,2,H,W,D] -> complex -> numpy -> NUFFT
         x_c = ri_to_complex(x_ri)#.detach().cpu().numpy()
         y = self.E.op(x_c)  # complex numpy with shape like [Nsamples, ncoils] (backend-dependent)
-        return y#.to(x_ri.device)
+        return y.unsqueeze(0) #.to(x_ri.device)
 
     def A_adjoint(self, y: torch.Tensor) -> torch.Tensor:
         # complex torch (measurement domain) -> numpy -> adjoint NUFFT -> complex image -> RI 2ch
@@ -237,7 +241,7 @@ def get_DPIR_params(num_iter=8, sigma=2e-3, lmbd=5.5):
     :param str, torch.device device: Device to run the algorithm, either "cpu" or "cuda". Default is "cpu".
     :return: tuple(list with denoiser noise level per iteration, list with stepsize per iteration, iterations).
     """
-    sigma_init=0.01
+    sigma_init=0.015
     sigma_denoiser = torch.logspace(
         torch.log10(torch.tensor(sigma_init, dtype=torch.float32)),
         torch.log10(torch.tensor(sigma, dtype=torch.float32)),
@@ -330,7 +334,7 @@ def masked_psnr(gt, pred, mask):
 
     mse = np.mean((gt[mask]-pred[mask])**2)
 
-    data_range = gt.max()-gt.min()
+    data_range = gt.max()
 
     return 20*np.log10(data_range/np.sqrt(mse))
 
@@ -339,50 +343,23 @@ def masked_ssim(gt, pred, mask):
 
     vals = []
 
-    for z in range(gt.shape[0]):
+    for z in range(gt.shape[-1]):
 
-        if mask[z].sum() < 10:
+        if mask[..., z].sum() < 10:
             continue
 
         vals.append(
             structural_similarity(
-                gt[z],
-                pred[z],
-                data_range=gt.max()-gt.min()
+                (gt*mask)[..., z],
+                (pred*mask)[..., z],
+                data_range=(gt*mask)[..., z].max()
             )
         )
 
     return np.mean(vals)
-    
-    
-def normalize(gt, pred, mode):
 
-    if mode == "none":
-        return gt, pred
 
-    if mode == "global_max":
-        m = gt.max()
-        return gt/m, pred/m
-
-    if mode == "minmax":
-        mn, mx = gt.min(), gt.max()
-        gt = (gt-mn)/(mx-mn)
-        pred = (pred-mn)/(mx-mn)
-        return gt, pred
-
-    if mode == "zscore":
-        mean = gt.mean()
-        std = gt.std()
-        return (gt-mean)/std, (pred-mean)/std
-
-    if mode == "percentile":
-        p1, p99 = np.percentile(gt,[1,99])
-        gt = np.clip((gt-p1)/(p99-p1),0,1)
-        pred = np.clip((pred-p1)/(p99-p1),0,1)
-        return gt, pred
-
-    if mode == "magnitude":
-        m = np.abs(gt).max()
-        return gt/m, pred/m
-
-    raise ValueError("Unknown normalization")
+def masked_nmse(gt, pred, mask):
+    gt = gt[mask]
+    pred = pred[mask]
+    return ((gt - pred) ** 2).sum() / ((gt ** 2).sum() + 1e-12)
