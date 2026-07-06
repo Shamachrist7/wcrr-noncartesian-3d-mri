@@ -1,1 +1,1 @@
-from .wcrr import WCRR3D, WCRR3D_eval
+from .wcrr import WCRR3D
