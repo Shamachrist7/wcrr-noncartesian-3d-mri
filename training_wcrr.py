@@ -8,8 +8,8 @@ import argparse
 import os
 
 parser = argparse.ArgumentParser(description="Choosing the training setting")
-parser.add_argument("--root", type=str, default='../../../../../../../../LOCAL/mri_data')
-parser.add_argument("--regularizer_name", type=str, default="WCRR_500")
+parser.add_argument("--root", type=str, default='/LOCAL/mri_data')
+parser.add_argument("--regularizer_name", type=str, default="WCRR_16")
 inp = parser.parse_args()
 root = inp.root
 
@@ -31,37 +31,37 @@ load_parameter_fitting = (
 )
 wandb_setup = {"project": regularizer_name + "_3D_Denoiser", "regularizer_name": regularizer_name}
 
-sigma_min = 0.01
+sigma_min = 0.001
 sigma_max = 0.1
 sigma_val = 0.05
 
-if regularizer_name == "WCRR_no_rotations": #non-rotation-invariant version
+if regularizer_name == "WCRR_16_no_rotations": #non-rotation-invariant version
     pretrain_epochs = 1000
     pretrain_lr = 1e-2
     fitting_lr = 0.1
     adabelief = True
-    epochs = 500
+    epochs = 1000
     lr = 1e-2
     jacobian_regularization = True
     jacobian_regularization_parameter = 1e-6
     regularizer = WCRR3D(
         weak_convexity=1.0,
-        nb_channels=[2, 4, 8, 32],
+        nb_channels=[2, 4, 8, 16],#128], #128 = 32*4
         filter_sizes=[3, 3, 3],
         rotations=False,
     ).to(device)
-elif regularizer_name == "WCRR_500":#"WCRR"
+elif regularizer_name == "WCRR_16": #"WCRR"
     pretrain_epochs = 1000
     pretrain_lr = 1e-2
     fitting_lr = 0.1
     adabelief = True
-    epochs = 500
+    epochs = 1000
     lr = 1e-2
     jacobian_regularization = True
     jacobian_regularization_parameter = 1e-6
     regularizer = WCRR3D(
         weak_convexity=1.0,
-        nb_channels=[2, 4, 8, 32],
+        nb_channels=[2, 4, 8, 16],#32],
         filter_sizes=[3, 3, 3],
         rotations=True,
     ).to(device)
@@ -202,7 +202,7 @@ regularizer, loss_train, loss_val, psnr_train, psnr_val = bilevel_training(
     NAG_tol_train=1e-4,
     NAG_tol_val=1e-4,
     lr=lr,
-    lr_decay=0.05 ** (1 / epochs),
+    lr_decay=0.01 ** (1 / epochs),
     reg=jacobian_regularization,
     reg_para=jacobian_regularization_parameter,
     device=device,
