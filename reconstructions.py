@@ -1,3 +1,11 @@
+import os
+import time
+import argparse
+import warnings
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+warnings.filterwarnings("ignore")
+
 from tokenize import Number
 
 import torch
@@ -10,28 +18,25 @@ from mrinufft.io.utils import add_phase_to_kspace_with_shifts
 from mrinufft.extras.smaps import cartesian_espirit, coil_compression
 from baselines.grappa_reconstruction import do_grappa_and_append_data
 from utils import MRINUFFTPhysicsRI, ri_to_complex, complex_to_ri, psnr, ssim, _load_volumes, L2_precon, normalize_kspace, get_acs_locations, get_DPIR_params
-from reg_architecture import WCRR3D, WCRR3D_eval
+from reg_architecture import WCRR3D
 from deepinv.optim.prior import PnP, WaveletPrior
 from deepinv.optim import HQS, FISTA
 from baselines.drunet.drunet_base import DRUNet
+from baselines.PostProcess.drunet3d import DRUNet3D
 from baselines.ncpdnet import NCPDNET
 from baselines.TV import PDHG_TV
+import yaml
+from baselines.NCSNpp2D.ncsnpp2D import build_model_from_config
+from baselines.NCSNpp2D.DiffMBIR import diffmbir
 from mrinufft.extras.cartesian import fft, ifft
 from mrinufft.extras.smaps import get_smaps
-from evaluation.nmAPG3d_evaluation import reconstruct_nmAPG
+from evaluation.nmAPG3d import reconstruct_nmAPG
 import gc
-import os
-import time
-import argparse
-import warnings
-#os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
-#os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-warnings.filterwarnings("ignore")
 
 torch.random.manual_seed(0)  # make results deterministic
 
 parser = argparse.ArgumentParser(description="reconstructions")
-parser.add_argument("--root", type=str, default='../../../../../../../../LOCAL/mri_data')
+parser.add_argument("--root", type=str, default='/LOCAL/mri_data')
 parser.add_argument("--method", type=str, default="WCRR")
 parser.add_argument("--folder", type=str, default="savings")
 parser.add_argument("--coil", type=int, default=12)
@@ -46,7 +51,7 @@ parser.add_argument("--init", type=str, default="grappa") # "grappa" or "sense"
 parser.add_argument("--use_wandb", type=bool, default=True) # Wether to use wandb to log the results or not. We use wandb to log the PSNR, SSIM and time for each reconstruction, which can be very useful for comparing different methods and hyperparameters. If you don't want to use wandb, you can set this to False.
 inp = parser.parse_args()
 coil = inp.coil # 12 or 32 or different for prospective users
-method = inp.method # "wcrr", "tv", "wv", "drunet" or "ncpdnet"
+method = inp.method # "wcrr", "tv", "wv", "drunet" or "ncpdnet" or "score-diff" or "postprocess"
 if inp.simulation:
     root = inp.root + f"/Test/{coil}coil"
 else:
@@ -77,7 +82,7 @@ max_iter = 500 # Maximum number of iterations
 data_fidelity = L2_precon(weights=torch.tensor(1.0))
 
 if inp.simulation:
-    volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".h5")])[:10]
+    volumes = sorted([fn for fn in os.listdir(root) if fn.endswith(".h5")])[:15]
     # Load trajectory and get the k-space locations
     traj, traj_params = read_trajectory(inp.traj, dwell_time=0.01/2)
     traj = traj.copy()
@@ -100,7 +105,7 @@ if method.lower()=="drunet":
     drunet = DRUNet(in_channels=2, out_channels=2, dim=3, pretrained=None).to(device)
     drunet.load_state_dict(torch.load("weights/drunet/drunet_3d_complex_denoise.pth", map_location=device, weights_only=True))
     prior_drunet = PnP(denoiser=drunet.eval())
-    sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=8, sigma=2e-3, lmbd=5.5)
+    sigma_denoiser, stepsize, num_iter = get_DPIR_params(num_iter=8, sigma=2e-3, lmbd=6.5)#6.0)
     solver_drunet = HQS(
             prior=prior_drunet,
             data_fidelity=data_fidelity,
@@ -121,39 +126,24 @@ if method.lower()=="tv":
     tol = 5e-4
 ##### (Rotation invariant) WCRR prior and hyperparameters #####
 if method.lower()=="wcrr":
-    regularizer = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=True).to(device)
-    regularizer.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_500_bilevel_IFT_ckpt_500.pt", weights_only=True, map_location=device))
+    regularizer = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,16], filter_sizes=[3, 3, 3], rotations=True).to(device)
+    regularizer.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_16_bilevel_IFT_ckpt_500.pt", weights_only=True, map_location=device))
     regularizer.eval()
     lmbd = 0.01
     sigma = 0.03
     sigma = torch.tensor([sigma], device=device)
     tol = 5e-3
-    WCRR = WCRR3D_eval(
-        conv_lip=regularizer.get_conv_lip(),
-        beta=torch.exp(regularizer.beta),
-        scaling_sigma=regularizer.scaling(sigma),
-        filters=regularizer.filters,
-        rotations=True,
-    )
-    del regularizer
     torch.cuda.empty_cache()
 ##### (Not rotation invariant) WCRR_no_rot prior and hyperparameters #####
 if method.lower()=="wcrr_no_rot":
-    regularizer = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,32], filter_sizes=[3, 3, 3], rotations=False).to(device)
-    regularizer.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_no_rotations_bilevel_IFT_ckpt_100.pt", weights_only=True, map_location=device))
+    regularizer = WCRR3D(weak_convexity=1.0, nb_channels=[2,4,8,16], filter_sizes=[3, 3, 3], rotations=False).to(device)
+    regularizer.load_state_dict(torch.load("weights/bilevel_Denoising/WCRR_16_no_rotations_bilevel_IFT_ckpt_500.pt", weights_only=True, map_location=device))
     regularizer.eval()
-    lmbd = 5e-3
-    sigma = 0.05
+    lmbd = 0.01#5e-3
+    sigma = 0.03#0.05
     sigma = torch.tensor([sigma], device=device)
     tol = 5e-3
-    WCRR_no_rot = WCRR3D_eval(
-        conv_lip=regularizer.get_conv_lip(),
-        beta=torch.exp(regularizer.beta),
-        scaling_sigma=regularizer.scaling(sigma),
-        filters=regularizer.filters,
-        rotations=False,
-    )
-    del regularizer
+    print("Number of parameters: ", sum(p.numel() for p in regularizer.parameters()))
     torch.cuda.empty_cache()
 ##### NC-PDNet #####
 if method.lower()=="ncpdnet":
@@ -164,11 +154,42 @@ if method.lower()=="ncpdnet":
             return torch.zeros_like(kspace)
     dummy_nufft = DummyNUFFT()
     ncpdnet = NCPDNET(nufft_op=dummy_nufft, image_net_type="ImageNetUnet", base_filters=16, num_stages=3, n_primal=2, n_iter=6, activation="silu", dim=3, complex_recon=True, normalize_input=True)
-    weights = torch.load("./weights/ncpdnet/checkpoint-epoch168.pth", map_location=device, weights_only=True)
+    weights = torch.load("weights/ncpdnet/NCPDNetWeights67.pth", map_location=device, weights_only=True)
     ncpdnet.load_state_dict(weights["state_dict"])
     print("Number of parameters in NC-PDNet: ", sum(p.numel() for p in ncpdnet.parameters()))
+##### Score-DiffMBIR #####
+if method.lower()=="score-diff":
+    cfg = yaml.safe_load(open("baselines/NCSNpp2D/ncsnpp2D.yaml"))
+    ckpt = torch.load("weights/NCSNpp2D/ckpt_0035000.pt", map_location=device)
+
+    model = build_model_from_config(cfg).to(device)
+    model.load_state_dict(ckpt["model"], strict=True)
+
+    # overwrite model weights by EMA weights
+    sd = model.state_dict()
+    for k, v in ckpt["ema"].items():
+        sd[k].copy_(v.to(device))
+    model.load_state_dict(sd)
+    model.eval()
+    print("Number of parameters of Score-DiffMBIR: ", sum(p.numel() for p in model.parameters()))
+    
+##### Post-Processing #####
+if method.lower()=="postprocess": 
+    # model and reconstructor (use deepinv's DRUNet 3D)
+    net = DRUNet3D(in_channels=2, out_channels=2, pretrained=None, dim=3)
+    net.load_state_dict(torch.load("weights/PostProcess/ckp_epoch_500.pt", map_location=device, weights_only=True)["model"])
+    net.to(device)
+    net.eval()
+    print("Number of parameters of DRUNet3d Post-Processing: ", sum(p.numel() for p in net.parameters()))
+    
 
 # reconstructions
+psnr_list = []
+ssim_list = []
+avg_time = 0
+psnr_init_list = []
+ssim_init_list = []
+avg_time_init = 0
 
 for i, volume in enumerate(volumes):
     if not inp.simulation:
@@ -268,7 +289,7 @@ for i, volume in enumerate(volumes):
     physics = MRINUFFTPhysicsRI(E_est)
     print("Succesfull!")
     # compute initialization (GRAPPA or SENSE)
-    if inp.init.lower() == "grappa":
+    if inp.init.lower() == "grappa" and method.lower() != "postprocess":
         try:
             t1_grappa = time.time()
             new_kspace_loc, y_grappa = do_grappa_and_append_data(kspace_loc, y, traj_params, af=(2, 2), acs=None if inp.simulation else data_header['acs'], caipi_delta=caipi_delta)
@@ -280,13 +301,17 @@ for i, volume in enumerate(volumes):
         except:
             print("GRAPPA reconstruction failed! Please, use SENSE as initialization for this trajectory!")
             break
-    elif inp.init.lower() == "sense":
+    elif inp.init.lower() == "sense" and method.lower() != "postprocess":
         t1_sense = time.time()
         sense_ri = physics.A_dagger(y)
         dt_init = time.time() - t1_sense
     
-    init = sense_ri if inp.init.lower() == "sense" else grappa_ri # Initialization for all our iterative methods
-    init_recon = torch.abs(ri_to_complex(init))
+    if method.lower() != "postprocess":
+        init = sense_ri if inp.init.lower() == "sense" else grappa_ri # Initialization for all our iterative methods
+        init_recon = torch.abs(ri_to_complex(init))
+    else:
+        init_recon = torch.zeros(x.shape[-3:])
+        dt_init = 0.0
     # Reference/Ground Truth (Adjoint coil combination)
     smaps = torch.from_numpy(smaps)
     x_gt = torch.sum(torch.conj(smaps) * x, axis=0)
@@ -349,10 +374,10 @@ for i, volume in enumerate(volumes):
             t1_wcrr = time.time()
             x_rec_ri_wcrr = reconstruct_nmAPG(
                     sigma,
-                    y.to(device),
+                    y.unsqueeze(0).to(device),
                     physics,
                     data_fidelity,
-                    WCRR,
+                    regularizer,
                     lmbd,
                     1e-1, # Stepsize_nmAPG (can be anything)
                     max_iter,
@@ -369,10 +394,10 @@ for i, volume in enumerate(volumes):
             t1_wcrr_no_rot = time.time()
             x_rec_ri_wcrr_no_rot = reconstruct_nmAPG(
                     sigma,
-                    y.to(device),
+                    y.unsqueeze(0).to(device),
                     physics,
                     data_fidelity,
-                    WCRR_no_rot,
+                    regularizer,
                     lmbd,
                     1e-1, # Stepsize_nmAPG (can be anything)
                     max_iter,
@@ -386,19 +411,64 @@ for i, volume in enumerate(volumes):
     # NC-PDnet recon
     if method.lower()=="ncpdnet":
         # NC-PDNet is trained with Density compensation
-        yn, norm_fact = normalize_kspace(y, torch.from_numpy(E_est.samples)) #normalize wrt energy of central region
-        y = yn.to(device)
-        init_cplx = ri_to_complex(init).to(device)[None, None] / norm_fact # normalised init (GRAPPA/SENSE) reconstruction as input to ncpdnet
-        E_est.squeeze_dims = False # preserve batch dim for ncpdnet
+        samples = torch.from_numpy(E_est.samples.get()).to(dtype=torch.float32)
+
+        yn, norm_fact = normalize_kspace(y, samples)
+
+        # Make norm_fact safe and float32
+        if not torch.is_tensor(norm_fact):
+            norm_fact_t = torch.tensor(norm_fact, device=device, dtype=torch.float32)
+        else:
+            norm_fact_t = norm_fact.to(device=device, dtype=torch.float32)
+
+        # Force k-space to complex64 on GPU
+        y = yn.to(device=device, dtype=torch.complex64)
+
+        # Force initialization to complex64 on GPU
+        init_cplx = ri_to_complex(init).to(device=device, dtype=torch.complex64)[None, None]
+        init_cplx = init_cplx / norm_fact_t
+
+        E_est.squeeze_dims = False  # preserve batch dim for ncpdnet
         ncpdnet.update_nufft_op(E_est)
-        ncpdnet.to(device).eval()
+        ncpdnet.to(device=device, dtype=torch.float32).eval()
+
         with torch.no_grad():
             t1_ncpdnet = time.time()
-            recon = ncpdnet(y.unsqueeze(0), init_cplx).squeeze().detach().cpu() 
-            recon = torch.abs(recon) * norm_fact
+
+            recon = ncpdnet(
+                y.unsqueeze(0),
+                init_cplx,
+            ).squeeze().detach().cpu()
+
+            recon = torch.abs(recon) * norm_fact_t.detach().cpu()
             dt = time.time() - t1_ncpdnet
+    # Score-DiffMBIR recon
+    if method.lower()=="score-diff":
+        with torch.no_grad():
+            t1_scorediff = time.time()
+            x_rec_ri = diffmbir(model, physics, y.to(device), init.to(device),
+                    sigma_max=0.015,sigma_min=0.002,num_steps=6,
+                    dc_steps=3, dc_lr=1.0, z_weight=1e-2,
+                ).detach().cpu()
+            dt = time.time() - t1_scorediff
+            recon  = torch.abs(ri_to_complex(x_rec_ri)) # Its magnitude
+    # Post-Processing recon
+    if method.lower()=="postprocess":
+        with torch.no_grad():
+            t1_postprocess = time.time()
+            zf_ri = physics.A_adjoint(y)
+            x_rec_ri = net(zf_ri.to(device)).detach().cpu()
+            dt = time.time() - t1_postprocess
+            recon  = torch.abs(ri_to_complex(x_rec_ri)) # Its magnitude
+        
     # Log all the metrics to weights and biases (psnr, ssim and time)
     wandb.log({"volume_idx": i if volume_id == -1 else volume_id, f"psnr_{inp.init.lower()}": psnr(init_recon, reference), f"ssim_{inp.init.lower()}": ssim(init_recon, reference), f"psnr_{method.lower()}": psnr(recon, reference), f"ssim_{method.lower()}": ssim(recon, reference), f"time_{inp.init.lower()}": dt_init, f"time_{method.lower()}": dt})
+    psnr_list.append(psnr(recon, reference))
+    ssim_list.append(ssim(recon, reference))
+    avg_time += dt
+    psnr_init_list.append(psnr(init_recon, reference))
+    ssim_init_list.append(ssim(init_recon, reference))
+    avg_time_init += dt_init
 
     torch.save(reference, f"{start_dir}_{coil}coil_{inp.traj[:-4]}/volume_{i if volume_id == -1 else volume_id}_gt.pt")
     torch.save(init_recon, f"{start_dir}_{coil}coil_{inp.traj[:-4]}/volume_{i if volume_id == -1 else volume_id}_{inp.init.lower()}.pt")
@@ -433,6 +503,12 @@ for i, volume in enumerate(volumes):
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
             
+print(f"PSNR of {inp.init.upper()} reconstructions: mean = {np.mean(psnr_init_list):.2f} dB, std = {np.std(psnr_init_list):.4f}")
+print(f"SSIM of {inp.init.upper()} reconstructions: mean = {np.mean(ssim_init_list):.4f}, std = {np.std(ssim_init_list):.4f}")
+print(f"Average compute time of {inp.init.upper()} reconstructions: {avg_time_init/len(volumes):.4f} s")
+print(f"PSNR of {inp.method.upper()} reconstructions: mean = {np.mean(psnr_list):.2f} dB, std = {np.std(psnr_list):.4f}")
+print(f"SSIM of {inp.method.upper()} reconstructions: mean = {np.mean(ssim_list):.4f}, std = {np.std(ssim_list):.4f}")
+print(f"Average compute time of {inp.method.upper()} reconstructions: {avg_time/len(volumes):.4f} s")
 print("Reconstructions finished!")
 if inp.use_wandb:
     wandb.finish()
