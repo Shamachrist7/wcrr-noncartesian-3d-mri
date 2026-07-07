@@ -35,7 +35,7 @@ export TF_CPP_MIN_LOG_LEVEL=3
 The code relies mainly on [DeepInverse](https://deepinv.github.io), [MRI-NUFFT](https://mind-inria.github.io/mri-nufft/) and [GGRAPPA](https://github.com/mind-inria/ggrappa). [Weights & Biases](https://docs.wandb.ai/models/quickstart#command-line) is used to monitor, visualize and save the results of the different runs. To get started, run:
 
 ```
-conda env create --file=environment.yaml -n wcrr_env
+conda env create --file=environment.yaml
 ```
 Note that at least a CUDA 12 machine is necessary. Previous versions might encounter some issues.
 
