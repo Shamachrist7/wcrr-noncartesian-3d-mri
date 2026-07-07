@@ -164,14 +164,14 @@ dependencies:
       - sympy==1.14.0
       - tifffile==2026.3.3
       - timm==1.0.27
-      - torch==2.11.0+cu128
-      - torchaudio==2.11.0+cu128
+      - torch==2.11.0
+      - torchaudio==2.11.0
       - torchcde==0.2.5
       - torchdiffeq==0.2.5
       - torchio==1.2.1
       - torchmetrics==1.9.0
       - torchsde==0.2.6
-      - torchvision==0.26.0+cu128
+      - torchvision==0.26.0
       - tqdm==4.67.3
       - trampoline==0.1.2
       - triton==3.6.0
