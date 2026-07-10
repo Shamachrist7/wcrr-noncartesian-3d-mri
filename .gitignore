@@ -6,3 +6,5 @@ images/
 output/
 weights/ncpdnet/*
 weights/drunet/*
+*.pt
+*.pth

@@ -5,6 +5,8 @@ import torch.nn.utils.parametrize as P
 from deepinv.optim import Prior
 import torchcde
 
+torch.set_float32_matmul_precision("high")
+torch.backends.cudnn.allow_tf32 = True
 
 class LinearSpline(nn.Module):
     """
@@ -132,6 +134,8 @@ class WCRR3D(Prior):
         self.weak_cvx = weak_convexity
         self.tanh = tanh
         self.rotations = rotations
+        self.lip_available = False
+        self.lip = None
 
         if pretrained:
             self.load_state_dict(torch.load(pretrained, map_location=device))
@@ -148,11 +152,14 @@ class WCRR3D(Prior):
         return torch.clip(x, -1.0, 1.0)
 
     def get_conv_lip(self):
-        imp = self.filters(self.dirac)
-        for filt in reversed(self.filters):
-            imp = F.conv_transpose3d(imp, filt.weight, padding=filt.padding)
-        lip = torch.fft.fftn(imp.float()).abs().max()
-        return lip.to(imp.dtype)
+        if not self.lip_available:
+            imp = self.filters(self.dirac)
+            for filt in reversed(self.filters):
+                imp = F.conv_transpose3d(imp, filt.weight, padding=filt.padding)
+            lip = torch.fft.fftn(imp.float()).abs().max()
+            self.lip = lip.to(imp.dtype)
+            self.lip_available = True
+        return self.lip
 
     def conv(self, x):
         lip = torch.sqrt(self.get_conv_lip())
@@ -165,22 +172,31 @@ class WCRR3D(Prior):
             out = F.conv_transpose3d(out, filt.weight, padding=filt.padding)
         return out
 
-    def grad(self, x, sigma): # sigma --> 1D tensor with size equals the batch size of x
+    def grad(self, x, sigma, get_energy=False): # sigma --> 1D tensor with size equals the batch size of x
 
         beta_sp = torch.exp(self.beta)
         scale_sp = self.scaling(sigma)
         
         def grad_R(x):
             g = self.conv(x) * scale_sp
+            if get_energy:
+                r = self.smooth_l1(beta_sp * g) / beta_sp - self.smooth_l1(g) * self.weak_cvx
+                r = r / scale_sp**2
+                r = r.sum(dim=(1, 2, 3, 4))
             g = self.grad_smooth_l1(beta_sp * g) - self.grad_smooth_l1(g) * self.weak_cvx
-            g = g / scale_sp
-            return self.conv_transpose(g)
+            g = self.conv_transpose(g / scale_sp)
+            return (r,g) if get_energy else g
         if self.rotations:
             x_DH = torch.rot90(x, k=1, dims=(-3,-2))
             x_DW = torch.rot90(x, k=1, dims=(-3,-1))
             x_HW = torch.rot90(x, k=1, dims=(-2,-1))
-            grad_cost = grad_R(x) + torch.rot90(grad_R(x_DH), k=-1, dims=(-3,-2)) + torch.rot90(grad_R(x_DW), k=-1, dims=(-3,-1)) + torch.rot90(grad_R(x_HW), k=-1, dims=(-2,-1))
-        return grad_cost/4 if self.rotations else grad_R(x)
+            if get_energy:
+                grad_cost = grad_R(x)[1] + torch.rot90(grad_R(x_DH)[1], k=-1, dims=(-3,-2)) + torch.rot90(grad_R(x_DW)[1], k=-1, dims=(-3,-1)) + torch.rot90(grad_R(x_HW)[1], k=-1, dims=(-2,-1))
+                cost = grad_R(x)[0] + grad_R(x_DH)[0] + grad_R(x_DW)[0] + grad_R(x_HW)[0]
+            else:
+                grad_cost = grad_R(x) + torch.rot90(grad_R(x_DH), k=-1, dims=(-3,-2)) + torch.rot90(grad_R(x_DW), k=-1, dims=(-3,-1)) + torch.rot90(grad_R(x_HW), k=-1, dims=(-2,-1))
+            return (cost, grad_cost/4) if get_energy else grad_cost/4
+        return grad_R(x)
 
     def g(self, x, sigma): # sigma --> 1D tensor with size equals the batch size of x
 
@@ -202,81 +218,3 @@ class WCRR3D(Prior):
     def _apply(self, fn):
         self.dirac = fn(self.dirac)
         return super()._apply(fn)
-
-
-
-
-class WCRR3D_eval:
-    def __init__(
-        self,
-        conv_lip,
-        beta,
-        scaling_sigma,
-        filters,
-        effective_filters=False,
-        rotations=True,
-        weak_cvx=1.0,
-    ):
-        super(WCRR3D_eval, self).__init__()
-        
-        self.filters = filters
-        self.scaling_sigma = scaling_sigma
-        self.beta = beta
-        self.lip = torch.sqrt(conv_lip)
-        self.rotations = rotations
-        self.weak_cvx = weak_cvx
-        self.effective_filters = effective_filters
-
-    def smooth_l1(self, x):
-        return torch.clip(x**2, 0.0, 1.0) / 2 + torch.clip(torch.abs(x), 1.0) - 1.0
-
-    def grad_smooth_l1(self, x):
-        return torch.clip(x, -1.0, 1.0)
-
-    def conv(self, x):
-        if self.effective_filters:
-            return F.conv3d(x / self.lip, self.filters, bias=None, stride=1, padding=3)
-        return self.filters(x / self.lip)
-
-    def conv_transpose(self, x):
-        if self.effective_filters:
-            return F.conv_transpose3d(x / self.lip, self.filters, bias=None, stride=1, padding=3)
-        out = x / self.lip
-        for filt in reversed(self.filters):
-            out = F.conv_transpose3d(out, filt.weight, padding=filt.padding)
-        return out
-
-    def grad(self, x, sigma): # sigma --> 1D tensor with size equals the batch size of x
-        
-        def grad_R(x):
-            g = self.conv(x) * self.scaling_sigma
-            g = self.grad_smooth_l1(self.beta * g) - self.grad_smooth_l1(g) * self.weak_cvx
-            g = g / self.scaling_sigma
-            return self.conv_transpose(g)
-        if self.rotations:
-            x_DH = torch.rot90(x, k=1, dims=(-3,-2))
-            x_DW = torch.rot90(x, k=1, dims=(-3,-1))
-            x_HW = torch.rot90(x, k=1, dims=(-2,-1))
-            grad_cost = grad_R(x) + torch.rot90(grad_R(x_DH), k=-1, dims=(-3,-2)) + torch.rot90(grad_R(x_DW), k=-1, dims=(-3,-1)) + torch.rot90(grad_R(x_HW), k=-1, dims=(-2,-1))
-        return grad_cost/4 if self.rotations else grad_R(x)
-
-    def g(self, x, sigma): # sigma --> 1D tensor with size equals the batch size of x
-        
-        def R(x):
-            r = self.conv(x) * self.scaling_sigma
-            r = self.smooth_l1(self.beta * r) / self.beta - self.smooth_l1(r) * self.weak_cvx
-            r = r / self.scaling_sigma**2
-            return r.sum(dim=(1, 2, 3, 4))
-        if self.rotations:
-            x_DH = torch.rot90(x, k=1, dims=(-3,-2))
-            x_DW = torch.rot90(x, k=1, dims=(-3,-1))
-            x_HW = torch.rot90(x, k=1, dims=(-2,-1))
-            cost = R(x) + R(x_DH) + R(x_DW) + R(x_HW)
-        return cost/4 if self.rotations else R(x)
-    
-
-
-
-
-
-

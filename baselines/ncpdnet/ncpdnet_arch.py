@@ -83,32 +83,33 @@ class CrossDomainNet(nn.Module):
         return kspace_buffer  
 
     def i_domain_correction(self, i_domain, image_buffer, kspace_buffer):
-        #print(f"first_k_buff:{kspace_buffer.shape}")
-        backward_op_res = self.backward_operator(kspace_buffer)
-        #print(f"backward_op_res:{backward_op_res.shape}")
+        backward_op_res = self.backward_operator(kspace_buffer).to(torch.complex64)
+
         if self.i_buffer_mode:
             image_buffer = torch.cat(
                 [
-                    image_buffer,
+                    image_buffer.to(torch.complex64),
                     backward_op_res,
                 ],
                 1,
             )
         else:
             image_buffer = backward_op_res
+
+        image_buffer = image_buffer.to(torch.complex64)
         image_buffer = self.image_net[i_domain // 2](image_buffer)
+
         return image_buffer
 
     def forward(self, original_kspace, x0=None):
         # Load input data
-        original_kspace = original_kspace.contiguous()
-        #print(f"in_k:{original_kspace.shape}")
+        original_kspace = original_kspace.contiguous().to(torch.complex64)
         # Compute x0
         if x0 is None:
-            image = self.backward_operator(original_kspace)
+            image = self.backward_operator(original_kspace).to(torch.complex64)
         else:
-            image = x0.to(torch.complex64)    
-        #print(f"in_i:{image.shape}")
+            image = x0.to(torch.complex64)
+            
         if self.normalize_input:
             norm_fact = self._normalize_img(image)
             image = image / norm_fact

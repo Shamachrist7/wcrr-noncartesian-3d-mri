@@ -14,6 +14,14 @@ def grad_norm(model, norm_type=2):
         total += float(param_norm) ** norm_type
     return total ** (1.0 / norm_type)
 
+# def cplx_mag(x: torch.Tensor):
+#     """
+#     computes the complex magnitude of a real tensor of shape [B, 2, H, W, D]
+#     where channel 0 = real, channel 1 = imag.
+#     return real tensor of shape [B, 1, H, W, D]
+#     """
+#     return (x[:,0:1] + 1j * x[:,1:2]).abs()
+
 def score_training(
     regularizer,
     train_dataloader,
@@ -38,12 +46,12 @@ def score_training(
         # Set the project where this run will be logged
         project=wandb_setup["project"],
         # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-        name=f"Score {wandb_setup["regularizer_name"]}",
+        name=f"Score {wandb_setup['regularizer_name']}",
         # Track hyperparameters and run metadata
         config={
         "lr": lr,
         "exponential lr decay factor": lr_decay,
-        "architecture": f"Multi-noise level {wandb_setup["regularizer_name"]}",
+        "architecture": f"Multi-noise level {wandb_setup['regularizer_name']}",
         "dataset": "Calgary-Campinas",
         "epochs": epochs,
         })
@@ -149,7 +157,7 @@ def score_training(
                 wandb.log({"Val Loss": mean_val_loss, "Val PSNR": mean_val_psnr})
 
                 # save checkpoint whenever you validate
-                torch.save(regularizer.state_dict(),f"weights/score_for_Denoising/{wandb_setup["regularizer_name"]}_score_training_ckpt_{epoch + 1}.pt")
+                torch.save(regularizer.state_dict(),f"weights/score_for_Denoising/{wandb_setup['regularizer_name']}_score_training_ckpt_{epoch + 1}.pt")
 
                 """# ---- Save best regularizer based on validation PSNR ----
                 if mean_val_psnr > best_val_psnr:

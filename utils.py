@@ -233,7 +233,7 @@ def normalize_kspace(kspace_data: torch.Tensor, kspace_loc, thresh=0.05):
 # -----------------------------------
 # Computes the DPIR parameters (denoiser noise level and stepsize per iteration) based on the noise level of the input image and the regularization parameter lambda.
 # -----------------------------------
-def get_DPIR_params(num_iter=8, sigma=2e-3, lmbd=5.5):
+def get_DPIR_params(num_iter=8, sigma=2e-3, lmbd=5.5, sigma_init=0.015):
     r"""
     Default parameters for the DPIR Plug-and-Play algorithm.
 

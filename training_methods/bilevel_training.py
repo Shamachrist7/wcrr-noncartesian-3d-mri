@@ -16,6 +16,14 @@ def grad_norm(model, norm_type=2):
         total += float(param_norm) ** norm_type
     return total ** (1.0 / norm_type)
 
+# def cplx_mag(x: torch.Tensor):
+#     """
+#     computes the complex magnitude of a real tensor of shape [B, 2, H, W, D]
+#     where channel 0 = real, channel 1 = imag.
+#     return real tensor of shape [B, 1, H, W, D]
+#     """
+#     return (x[:,0:1] + 1j * x[:,1:2]).abs()
+
 def bilevel_training(
     regularizer,
 #    physics,
@@ -43,7 +51,6 @@ def bilevel_training(
     momentum_optim=None,
     reg=False,
     reg_para=1e-5,
-    reg_reduced=False,
     adabelief=False,
     device="cuda" if torch.cuda.is_available() else "cpu",
     verbose=False,
@@ -51,7 +58,7 @@ def bilevel_training(
     logger=None,
     dynamic_range_psnr=False,
     savestr=None,
-    upper_loss=lambda x, y: torch.sum(((x - y) ** 2).view(x.shape[0], -1), -1),
+    upper_loss=lambda x, y: torch.linalg.vector_norm(x - y, ord=2, dim=tuple(range(1, x.ndim)))**2,
 ):
     assert validation_epochs <= epochs, (
         "validation_epochs cannot be greater than epochs. "
@@ -63,12 +70,12 @@ def bilevel_training(
         # Set the project where this run will be logged
         project=wandb_setup["project"],
         # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-        name=f"{task} {wandb_setup["regularizer_name"]}",
+        name=f"{task} {wandb_setup['regularizer_name']}",
         # Track hyperparameters and run metadata
         config={
         "lr": lr,
         "exponential lr decay factor": lr_decay,
-        "architecture": f"Multi-noise level {wandb_setup["regularizer_name"]}",
+        "architecture": f"Multi-noise level {wandb_setup['regularizer_name']}",
         "dataset": "Calgary-Campinas",
         "epochs": epochs,
         })
@@ -97,23 +104,6 @@ def bilevel_training(
         if diff:
             return hvp
         return hvp.detach()
-
-    def jac_vector_product(sigma, x, v, data_fidelity, y, regularizer, lmbd, physics):
-        grad_lower_level = lambda x: data_fidelity.grad(
-            x, y, physics
-        ) + lmbd * regularizer.grad(x, sigma)
-        for param in regularizer.parameters():
-            if param.requires_grad:
-                dot = torch.dot(grad_lower_level(x).view(-1), v.view(-1))
-                if param.grad is None:
-                    param.grad = -torch.autograd.grad(dot, param, create_graph=False)[
-                        0
-                    ].detach()
-                else:
-                    param.grad -= torch.autograd.grad(dot, param, create_graph=False)[
-                        0
-                    ].detach()
-        return regularizer
 
     def jac_pow_loss(x, physics, M=50, tol=1e-2):
         hvp = torch.randint(low=0, high=1, size=x.shape).to(x) * 2 - 1
@@ -254,26 +244,38 @@ def bilevel_training(
                 grad_loss = torch.autograd.grad(
                     loss_fn(x_recon), x_recon, create_graph=False
                 )[0].detach()
-
-                q = minres(
-                    lambda input: hessian_vector_product(
-                        sigma,
-                        x_recon.detach(),
-                        input,
-                        data_fidelity,
-                        y,
-                        regularizer,
-                        lmbd,
-                        physics,
-                    ),
+                
+                # Updates start
+                inner_grad = data_fidelity.grad(x_recon, y, physics) + lmbd * regularizer.grad(x_recon, sigma)
+                def hvp_fn(v):
+                    return torch.autograd.grad(
+                        inner_grad,
+                        x_recon,
+                        grad_outputs=v,
+                        retain_graph=True,
+                        create_graph=False,
+                    )[0]
+                q = minres(  
+                    hvp_fn,
                     grad_loss,
                     max_iter=minres_max_iter,
                     tol=minres_tol,
                 )
-
-                regularizer = jac_vector_product(
-                    sigma, x_recon, q, data_fidelity, y, regularizer, lmbd, physics
+                params = [p for p in regularizer.parameters() if p.requires_grad]
+                hypergrads = torch.autograd.grad(
+                    outputs=inner_grad,
+                    inputs=params,
+                    grad_outputs=q,
+                    retain_graph=False, # Finally release the graph memory here
                 )
+                with torch.no_grad():
+                    for param, hypergrad in zip(params, hypergrads):
+                        if param.grad is None:
+                            param.grad = -hypergrad.detach()
+                        else:
+                            param.grad -= hypergrad.detach()
+                # Updates end
+                
             elif mode == "JFB":
                 L = x_stats["L"]
                 grad = data_fidelity.grad(
@@ -351,9 +353,9 @@ def bilevel_training(
 
                 # save checkpoint whenever you validate
                 if fitting_only:
-                    torch.save(regularizer.state_dict(),f"weights/score_parameter_fitting_for_Denoising/{wandb_setup["regularizer_name"]}_fitted_parameters_with_IFT_ckpt_{epoch + 1}.pt")
+                    torch.save(regularizer.state_dict(),f"weights/score_parameter_fitting_for_Denoising/{wandb_setup['regularizer_name']}_fitted_parameters_with_IFT_ckpt_{epoch + 1}.pt")
                 else:
-                    torch.save(regularizer.state_dict(),f"weights/bilevel_Denoising/{wandb_setup["regularizer_name"]}_bilevel_IFT_ckpt_{epoch + 1}.pt")
+                    torch.save(regularizer.state_dict(),f"weights/bilevel_Denoising/{wandb_setup['regularizer_name']}_bilevel_IFT_ckpt_{epoch + 1}.pt")
 
     wandb.finish()
 

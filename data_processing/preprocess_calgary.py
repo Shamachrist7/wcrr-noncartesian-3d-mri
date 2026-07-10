@@ -7,7 +7,7 @@ import argparse
 from .vcc import virtual_coil_combination_3D
 
 parser = argparse.ArgumentParser(description="Choosing the root directory")
-parser.add_argument("--root", type=str, default='../../../../../../../../LOCAL/mri_data')
+parser.add_argument("--root", type=str, default='/LOCAL/mri_data')
 inp = parser.parse_args()
 root = inp.root + '/'
 

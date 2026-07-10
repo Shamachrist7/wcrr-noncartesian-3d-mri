@@ -154,7 +154,7 @@ if method.lower()=="ncpdnet":
             return torch.zeros_like(kspace)
     dummy_nufft = DummyNUFFT()
     ncpdnet = NCPDNET(nufft_op=dummy_nufft, image_net_type="ImageNetUnet", base_filters=16, num_stages=3, n_primal=2, n_iter=6, activation="silu", dim=3, complex_recon=True, normalize_input=True)
-    weights = torch.load("weights/ncpdnet/NCPDNetWeights67.pth", map_location=device, weights_only=True)
+    weights = torch.load("weights/ncpdnet/NCPDNetWeights47.pth", map_location=device, weights_only=True)
     ncpdnet.load_state_dict(weights["state_dict"])
     print("Number of parameters in NC-PDNet: ", sum(p.numel() for p in ncpdnet.parameters()))
 ##### Score-DiffMBIR #####
