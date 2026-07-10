@@ -1,0 +1,82 @@
+name: wcrr_env
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+channel_priority: flexible
+
+dependencies:
+  # Core Python stack
+  - python=3.11
+  - pip
+  - setuptools<71
+  - wheel
+
+  # PyTorch CUDA stack: keep this in conda, not pip.
+  # This avoids the pip conflict between torch, cuda-toolkit, and nvidia-* wheels.
+  - pytorch=2.5.1
+  - torchvision=0.20.1
+  - pytorch-cuda=12.4
+
+  # Scientific stack
+  - numpy=1.26.4
+  - scipy=1.13.1
+  - pandas>=2.2,<3.0
+  - h5py>=3.10
+  - hdf5storage>=0.1.19
+  - scikit-image>=0.22,<0.26
+  - pywavelets>=1.6
+  - matplotlib>=3.8,<3.11
+  - pillow>=10
+  - imageio>=2.34
+  - pyyaml>=6
+  - tqdm>=4.66
+  - natsort>=8.4
+  - loguru>=0.7
+  - requests>=2.32
+  - rich>=13
+  - typer>=0.12
+
+  # Notebook / scripts / utilities
+  - ipykernel
+  - jupyter
+  - ffmpeg
+  - rclone
+  - unzip
+
+  # 3D visualization, optional but useful for your filter/MRI videos
+  - pyvista>=0.44
+
+  - pip:
+      # MRI / NUFFT / reconstruction
+      - mri-nufft==1.5.1
+      - cufinufft==2.5.1
+      - cupy-cuda12x==14.1.1
+      - deepinv==0.4.0
+      - ptwt>=0.1.9
+      - git+https://github.com/mind-inria/ggrappa
+
+      # Experiment tracking
+      - wandb>=0.17,<0.22
+      - protobuf<6
+
+      # Neural-network / diffusion baseline utilities
+      - einops>=0.8
+      - einops-exts>=0.0.4
+      - omegaconf>=2.3
+      - timm>=1.0
+      - safetensors>=0.4
+      - huggingface-hub>=0.24
+      - rotary-embedding-torch>=0.8
+      - torchdiffeq>=0.2.4
+      - torchsde>=0.2.6
+      - torchcde>=0.2.5
+      - pytorch-lightning>=2.3,<2.6
+      - torchmetrics>=1.4,<1.8
+      - jaxtyping>=0.2
+
+      # Medical-image helpers used by several MRI repos/baselines
+      - nibabel>=5.2
+      - SimpleITK>=2.3
+      - torchio>=0.20
