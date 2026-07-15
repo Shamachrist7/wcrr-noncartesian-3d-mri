@@ -22,7 +22,7 @@ This repository contains the official PyTorch implementation of **WCRR (Weakly C
 <table align="center">
   <tr>
     <td align="center">
-      <img src="reg_architecture/rotating_filters.gif" width="750"><br>
+      <img src="reg_architecture/rotating_filters.mp4" width="750"><br>
       <b> Learned filters</b>
     </td>
   </tr>
