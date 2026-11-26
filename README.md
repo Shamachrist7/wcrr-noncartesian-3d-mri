@@ -1,10 +1,11 @@
 # Weakly Convex Ridge Regularization for 3D Non-Cartesian MRI Reconstruction
 
-[![arXiv](https://img.shields.io/badge/arXiv-2502.04079-b31b1b.svg)](http://arxiv.org/abs/2603.27158)
+[![MRM](https://img.shields.io/badge/Magnetic%20Resonance%20in%20Medicine-10.1002%2Fmrm.70632-blue)](https://doi.org/10.1002/mrm.70632)
+[![arXiv](https://img.shields.io/badge/arXiv-2603.27158-b31b1b.svg)](https://arxiv.org/abs/2603.27158)
 
-This repository contains the official PyTorch implementation of **WCRR (Weakly Convex Ridge Regularizer)** — a rotation-invariant regularizer integrated in a variational framework for accelerated 3D non-Cartesian MRI reconstruction.
+This repository contains the official PyTorch implementation of **WCRR (Weakly Convex Ridge Regularizer)**, a rotation-invariant regularizer integrated into a variational framework for accelerated 3D non-Cartesian MRI reconstruction.
 
-📄 **Paper**: [Weakly Convex Ridge Regularization for 3D Non-Cartesian MRI Reconstruction (arXiv:2603.27158)](http://arxiv.org/abs/2603.27158)  
+📄 **Paper:** [Magnetic Resonance in Medicine](https://doi.org/10.1002/mrm.70632) | [arXiv](https://arxiv.org/abs/2603.27158)
 
 <table align="center">
   <tr>
@@ -19,9 +20,7 @@ This repository contains the official PyTorch implementation of **WCRR (Weakly C
   </tr>
 </table>
 
-
 https://github.com/user-attachments/assets/1801b5bb-19c1-40ff-8ea1-f67f260beff6
-
 
 ---
 
