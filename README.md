@@ -85,7 +85,7 @@ The following checkpoint locations are expected by [`reconstructions.py`](recons
 | WCRR | `wcrr` | `weights/bilevel_Denoising/WCRR_16_bilevel_IFT_ckpt_500.pt` (included in the repository) |
 | DPIR / 3D DRUNet | `drunet` | `weights/drunet/drunet_3d_complex_denoise.pth` ([download pretrained model](https://huggingface.co/deepinv/drunet_3d_denoise_complex/tree/main)) |
 | NC-PDNet | `ncpdnet` | `weights/ncpdnet/NCPDNetWeights47.pth` ([download checkpoint](https://tuc.cloud/index.php/s/BbgR3KTKmQqpEiQ)) |
-| DRUNet3D (post-processing) | `postprocess` | `weights/PostProcess/ckp_epoch_500.pt` ([download](https://tuc.cloud/index.php/s/aMHznrXyPMFJBBp)) |
+| DRUNet3D (post-processing) | `postprocess` | `weights/PostProcess/ckp_epoch_500.pt` ([download checkpoint](https://tuc.cloud/index.php/s/aMHznrXyPMFJBBp)) |
 | Score-DiffMBIR | `score-diff` | `weights/NCSNpp2D/ckpt_0035000.pt` ([download checkpoint](https://tuc.cloud/index.php/s/cYAksFSgw44c8Wa)) |
 
 In case you wish to retrain WCRR (And thus reproduce its weights by yourself), just run: ```python training_wcrr.py --root my_root_directory```
@@ -114,7 +114,6 @@ The reconstructions with each method are performed on 30 testing volumes (among 
 
 - [`reconstruction_results.ipynb`](reconstruction_results.ipynb): fetch reconstruction metrics from Weights & Biases and visualize saved reconstructions.
 - [`reconstruction_example.ipynb`](reconstruction_example.ipynb): reconstruct a single MRI volume with WCRR.
-- [`prospective.ipynb`](prospective.ipynb): examples for prospective acquisitions.
 
 ---
 
